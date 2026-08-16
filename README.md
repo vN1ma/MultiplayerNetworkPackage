@@ -46,7 +46,7 @@ In the **target** project (Unity 6):
 3. Paste:
 
 ```
-https://github.com/Nima385i/MultiplayerNetworkPackage.git?path=/DevProject/Packages/com.earshot.coop
+https://github.com/vN1ma/MultiplayerNetworkPackage.git?path=/DevProject/Packages/com.earshot.coop
 ```
 
 Unity pulls **only** `DevProject/Packages/com.earshot.coop`. It does not import the playtest house.
@@ -242,7 +242,7 @@ Im **Zielprojekt**:
 `Window > Package Manager` → `+` → **Add package from git URL**:
 
 ```
-https://github.com/Nima385i/MultiplayerNetworkPackage.git?path=/DevProject/Packages/com.earshot.coop
+https://github.com/vN1ma/MultiplayerNetworkPackage.git?path=/DevProject/Packages/com.earshot.coop
 ```
 
 Damit kommt nur das Paket, nicht die Testumgebung.
