@@ -1,0 +1,62 @@
+# ---------------------------------------------------------------------------
+# Unity cache and local editor junk — never ship these
+# ---------------------------------------------------------------------------
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Mm]emoryCaptures/
+[Uu]ser[Ss]ettings/
+[Rr]ecordings/
+
+*.pidb.meta
+*.pdb.meta
+*.mdb.meta
+sysinfo.txt
+crashlytics-build.properties
+
+# ---------------------------------------------------------------------------
+# Local test project (the playtest house, spawned assets, UGS-linked settings).
+# Rebuild anytime with Tools > Earshot > Testraum bauen after installing the package.
+# The shipped product is DevProject/Packages/com.earshot.coop only.
+# ---------------------------------------------------------------------------
+DevProject/Assets/
+DevProject/ProjectSettings/
+
+# ---------------------------------------------------------------------------
+# Absolute local paths
+# ---------------------------------------------------------------------------
+*.csproj
+*.unityproj
+*.sln
+*.suo
+*.user
+*.userprefs
+*.tmp
+.vs/
+.idea/
+.vsconfig
+
+# ---------------------------------------------------------------------------
+# Unity Gaming Services IDs and Vivox secrets — public repo
+# ---------------------------------------------------------------------------
+**/ProjectSettings.asset
+**/UnityServicesProjectConfiguration.json
+**/UnityServicesProjectConfiguration.json.meta
+**/ServicesProjectSettings.json
+**/VivoxSettings.asset
+**/VivoxAppCredentials.asset
+DevProject/ProjectSettings/UnityConnectSettings.asset
+
+# ---------------------------------------------------------------------------
+# Editor / OS
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+.cursor/
+agent-transcripts/
+Testruns/
+*.log
