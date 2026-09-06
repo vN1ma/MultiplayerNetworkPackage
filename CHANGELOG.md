@@ -10,6 +10,11 @@ Neueste Einträge oben. Format (siehe `.clinerules/01-workflow.md`):
 ```
 
 
+## [2026-09-06] – Ordner-Rollen in Phase 1 dokumentiert
+- In `docs/earshot-voice-plan.md` und `docs/PROGRESS.md` festgehalten: Neuer Voice-Code nur unter `DevProject/Packages/com.earshot.voice/`; `DevProject` bleibt Unity-Testprojekt; `com.earshot.coop` bleibt Multiplayer-Heimat; `ProximityChatExport/` wird nach Übernahme und Hörtest gelöscht (Historie sichert den Stand, Commit `1e78b0f`).
+- Warum: Die Ablageorte und der Verbleib der Ordner waren bislang nur teilweise dokumentiert.
+- Betroffene Dateien: `docs/earshot-voice-plan.md`, `docs/PROGRESS.md`
+
 ## [2026-09-06] – Phase 1 im Plan auf Export-Stand als Basis umgestellt
 - Phase 1 in `docs/earshot-voice-plan.md` und `docs/PROGRESS.md` umgeschrieben: Basis ist die neueste Voice-Iteration aus `ProximityChatExport/` (Namespace `Earshot.Proximity` → `Earshot.Voice`, `ProxVoice` → eigenständige Fassade, `ProxVoiceRoster` + `PlayerRegistry` → generisches `IProximityVoicePlayer`-Register) statt des älteren `Voice/`-Ordners in `com.earshot.coop`. WP-Reihenfolge unverändert, nur Basis und Übernahme-Schritte angepasst.
 - Warum: Nutzer hat klargestellt, dass der Export-Ordner die zuletzt bearbeitete Version enthält.

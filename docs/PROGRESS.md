@@ -30,6 +30,8 @@ Wenn ein Arbeitspaket dazu führt, dass der Nutzer mehr als eine Komponente anfa
 
 Ziel: `com.earshot.voice` entsteht als eigenständiges Paket, das nichts von Netcode/NGO/UGS-Multiplayer weiß. Basis ist die neueste Voice-Iteration im Ordner `ProximityChatExport/` (netzwerk-unabhängig, mit `ProxVoice`-Fassade, `ProxVoiceRoster`/`ProxVoicePlayer`; siehe `docs/DECISIONS.md`, Eintrag „ProximityChatExport ist die neueste Voice-Iteration"). Der `Voice/`-Ordner in `com.earshot.coop` ist der ältere Stand und liefert nur noch die Test-Werkzeuge. Die zwei bekannten Bugs werden hier gleich mitgefixt, weil genau die betroffenen Klassen ohnehin umgebaut werden.
 
+Ordner-Rollen ab jetzt: Neuer Voice-Code entsteht **ausschließlich** unter `DevProject/Packages/com.earshot.voice/`. `DevProject` bleibt das Unity-Testprojekt (Szenen, Playtests, MPPM-Duo-Tests). `com.earshot.coop` bleibt die Multiplayer-Heimat (verliert in Phase 2 nur den `Voice/`-Ordner, bekommt den `NetcodeVoicePlayer`-Adapter). `ProximityChatExport/` ist nur Quelle der Übernahme und Referenz für die Anleitung (Phase 5) und wird danach gelöscht.
+
 - [ ] **1.1 — `IProximityVoicePlayer`-Interface definieren** (`PlayerId`, `VoiceAnchor`, `Position`) — `ProxVoicePlayer`/`ProxVoiceRoster` aus dem Export sind die funktionierende Vorstufe und werden dadurch abgelöst
 - [ ] Neues Package-Grundgerüst `com.earshot.voice` anlegen (eigene `.asmdef`, **keine** Abhängigkeit zu Netcode/Multiplayer-Services, nur Vivox + Unity Authentication) — entsteht unter `DevProject/Packages/`, damit das Unity-Projekt es direkt kompiliert und playtestet
 - [ ] Code aus `ProximityChatExport/` übernehmen (Namespace `Earshot.Proximity` → `Earshot.Voice` umbenennen):
@@ -57,6 +59,7 @@ Ziel: `com.earshot.voice` entsteht als eigenständiges Paket, das nichts von Net
 - [ ] NGO-Adapter im alten Paket bauen: `NetcodeVoicePlayer : MonoBehaviour, IProximityVoicePlayer` (Brücke zu deinem bestehenden `CoopPlayer`/`NetworkObject`) — hält dein aktuelles Spiel während des Umbaus lauffähig. ID-Sync nach dem `ProxVoiceNetcodeGlue`-Muster (Owner-schreibende `NetworkVariable`, siehe `docs/DECISIONS.md`)
 - [ ] Tests: EditMode-Tests für das generische Register ohne Netzwerk
 - [ ] Hörtest mit `VoiceTestSpeaker` + itsjessamess-Clip: Delay weg, alle drei Effekte (Muffle, Reverb, Distanz-Falloff) einzeln hörbar korrekt
+- [ ] Nach Übernahme und bestandenem Hörtest: `ProximityChatExport/` aus dem Repo löschen — der Stand bleibt über die Git-Historie gesichert (Commit `1e78b0f`); `ANLEITUNG.md` vorher auf Phase-5-Relevanz gesichtet
 
 ---
 
