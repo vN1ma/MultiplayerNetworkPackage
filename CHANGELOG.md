@@ -10,6 +10,10 @@ Neueste Einträge oben. Format (siehe `.clinerules/01-workflow.md`):
 ```
 
 
+## [2026-09-06] – Unity-.meta-Dateien fuer com.earshot.voice
+- Git-Pakete sind fuer Unity unveraenderlich; ohne mitgelieferte `.meta` ignoriert der Editor alle Skripte. Metas fuer Dateien und Ordner nachgetragen.
+- Betroffene Dateien: `DevProject/Packages/com.earshot.voice/**/*.meta`
+
 ## [2026-09-06] – Team-Install per Git-URL (Weg A)
 - Spiel-Teams binden `com.earshot.voice` per Git-URL ein (`?path=/DevProject/Packages/com.earshot.voice`). Mitspieler brauchen dieses Repo nicht lokal. Nach Paket-Änderungen: hier pushen, im Spiel updaten, `packages-lock.json` mitcommitten.
 - Betroffene Dateien: `docs/altes-earshot-entfernen.md`, `README.md`, `docs/DECISIONS.md`
