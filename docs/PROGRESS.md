@@ -2,11 +2,11 @@
 
 ## Aktuell
 
-**Phase 3 fertig — Raum-Portal-Graph**
+**Phase 4 in Arbeit — Walkie-Talkie**
 
-Status: Treppen, Richtung aus der Tuer, Offset-Faecher und Autorentools sind drin. Zonen/Portale bleiben optional.
+Status: Package-API und Vivox-Funkkanal sind drin (Half-Duplex, Delay, Empfang am Gerät). Optik/Input/Pickup bleiben im Game-Repo — siehe `docs/walkie-talkie-game-integration.md`.
 
-Nächster Schritt: Phase 4 Walkie-Talkie. Schall folgt dem Laufweg (Tueren/Treppen), nicht der Luftlinie durch die Decke. Hoertest neu erzeugen nach Package-Update.
+Nächster Schritt: Hörtest mit zwei Walkies; danach Checkboxen unten abhaken.
 
 ---
 
@@ -106,16 +106,17 @@ Läuft jetzt vollständig innerhalb von `com.earshot.voice`, komplett multiplaye
 
 ## Phase 4 — Übertragungsgeräte (Walkie-Talkie)
 
-Ziel: Funkgeräte als **optionale** Welt-Objekte — die Stimme läuft über einen separaten Funkkanal und wird am Gerät des Empfängers abgespielt. V1-Regel: Funk ersetzt die Mund-Stimme, solange gesendet wird (Begründung und Alternativen: `docs/DECISIONS.md`, Eintrag „Walkie-Talkie V1"). Baut auf der abgekoppelten Architektur aus Phase 1 und der stabilen Pipeline auf.
+Ziel: Funkgeräte als **optionale** Welt-Objekte — die Stimme läuft über einen separaten Funkkanal und wird am Gerät des Empfängers abgespielt. V1-Regel: Funk ersetzt die Mund-Stimme, solange gesendet wird (Begründung: `docs/DECISIONS.md`, „Walkie-Talkie V1"). Half-Duplex und lokales Walkie-Delay sind Teil von V1 (Nutzerentscheidung 2026-09-06). Mitnahme-Doku fürs Spiel: `docs/walkie-talkie-game-integration.md`.
 
-- [ ] Vivox-Multi-Kanal-Fundament: separater Funkkanal pro Kanal-ID, paralleles Senden (Mikrofon in Proximity-Kanal **und** Funkkanal) — `IVoiceBackend`/`VivoxVoiceBackend` erweitern
-- [ ] `EarshotWalkieTalkie`-Komponente (optional, Welt-Objekt): Funkkanal-ID, eigener Transform als Voice-Anchor, Push-to-Talk-Input
-- [ ] Empfang: Funk-Stimme am eigenen Gerät abspielen — blechernes EQ-Band (HighPass+LowPass nach Vorbild `RadioModifier`-Sample), Position folgt dem Gerät (Hand/Hüfte/Boden automatisch über Unity-3D-Audio)
-- [ ] Umgebungs-Leak: jeder in Reichweite (~2–5 m) eines empfangenden Geräts hört die Funk-Stimme leise vom Gerät
-- [ ] Sender-Dämpfung: Mund-Stimme des Senders leiser, solange er funkt (ins Gerät sprechen)
-- [ ] Tests: EditMode-Tests für Kanal-Zuordnung und die „Funk ersetzt Mund"-Regel ohne Netzwerk
-- [ ] Hörtest: zwei Walkies in der Testszene, alle Verhaltensregeln einzeln verifiziert
-- [ ] Bewusst nicht in V1: Half-Duplex, Squelch-Knacksen, Reichweitenlimit/Batterie, dominanter Pfad mit weicher Überblendung
+- [x] Vivox-Multi-Kanal-Fundament: separater Funkkanal pro Kanal-ID; beim Senden nur Funk (`TransmissionMode.Single`), sonst Proximity — `IVoiceRadioBackend` / `VivoxVoiceBackend`
+- [x] `EarshotWalkieTalkie`-Komponente (optional, Welt-Objekt): Funkkanal-ID, Audio-Anchor, Power / CanTransmit / PTT — **kein** Spiel-Input im Package
+- [x] Empfang: Funk-Stimme am Gerät — blechernes EQ-Band, Position = Geräte-Transform, Half-Duplex (kein Empfang während lokalem PTT)
+- [x] Walkie-Delay: lokale Verzögerung am Empfänger (`WalkieAudioDelay`)
+- [x] Umgebungs-Leak: Distanz-Falloff um das empfangende Gerät (Max Hearing Distance)
+- [x] Sender-Dämpfung: Mund-Stimme des Senders leiser, solange Radio-Audio von ihm ankommt
+- [x] Tests: EditMode-Tests für Kanal-Zuordnung, Half-Duplex und „Funk ersetzt Mund"-Skala (`WalkieRulesTests`)
+- [ ] Hörtest: zwei Walkies in der Testszene / im Spiel, alle Verhaltensregeln einzeln verifiziert
+- [ ] Bewusst nicht in V1: Squelch-Knacksen, Reichweitenlimit/Batterie, dominanter Pfad mit weicher Überblendung
 
 ---
 

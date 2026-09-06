@@ -1,16 +1,22 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using UnityEngine;
 
 namespace Earshot.Voice
 {
+    /// <summary>Proximity-Mund oder Funkgeraet-Pfad.</summary>
+    public enum VoicePathKind
+    {
+        Proximity = 0,
+        Radio = 1
+    }
+
     /// <summary>
     /// Ein Sprecher, dessen Stimme empfangen wird, samt der AudioSource, die sie abspielt.
     /// <para>
-    /// Die AudioSource gehoert dem Backend. Earshot haengt sie an den Avatar und steuert
-    /// Lautstaerke und Filter, zerstoert sie aber niemals selbst - bei Vivox ist die
-    /// Lebensdauer an den Teilnehmer gekoppelt, und ein Eingriff von aussen fuehrt zu
-    /// schwer auffindbaren Abstuerzen.
+    /// Die AudioSource gehoert dem Backend. Earshot haengt sie an den Avatar bzw. das
+    /// Funkgeraet und steuert Lautstaerke und Filter, zerstoert sie aber niemals selbst.
     /// </para>
     /// </summary>
     public class VoiceSpeaker
@@ -21,21 +27,66 @@ namespace Earshot.Voice
         /// <summary>Die AudioSource, aus der die Stimme kommt.</summary>
         public AudioSource Source { get; }
 
-        public VoiceSpeaker(string playerId, AudioSource source)
+        /// <summary>Mund-Naehe oder Funkkanal.</summary>
+        public VoicePathKind PathKind { get; }
+
+        /// <summary>
+        /// Bei Proximity: Vivox-Matchkanal. Bei Radio: logische Funkkanal-ID (ohne Prefix).
+        /// </summary>
+        public string ChannelId { get; }
+
+        public VoiceSpeaker(
+            string playerId,
+            AudioSource source,
+            VoicePathKind pathKind = VoicePathKind.Proximity,
+            string channelId = null)
         {
             PlayerId = playerId;
             Source = source;
+            PathKind = pathKind;
+            ChannelId = channelId ?? string.Empty;
         }
+    }
+
+    /// <summary>Schluessel zum Entfernen eines Empfangspfads.</summary>
+    public readonly struct VoiceSpeakerKey : IEquatable<VoiceSpeakerKey>
+    {
+        public string PlayerId { get; }
+        public VoicePathKind PathKind { get; }
+        public string ChannelId { get; }
+
+        public VoiceSpeakerKey(string playerId, VoicePathKind pathKind, string channelId)
+        {
+            PlayerId = playerId ?? string.Empty;
+            PathKind = pathKind;
+            ChannelId = channelId ?? string.Empty;
+        }
+
+        public bool Equals(VoiceSpeakerKey other)
+        {
+            return PathKind == other.PathKind &&
+                   string.Equals(PlayerId, other.PlayerId, StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(ChannelId, other.ChannelId, StringComparison.OrdinalIgnoreCase);
+        }
+
+        public override bool Equals(object obj) => obj is VoiceSpeakerKey other && Equals(other);
+
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                int hash = StringComparer.OrdinalIgnoreCase.GetHashCode(PlayerId ?? string.Empty);
+                hash = (hash * 397) ^ (int)PathKind;
+                hash = (hash * 397) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(ChannelId ?? string.Empty);
+                return hash;
+            }
+        }
+
+        public override string ToString() => $"{PathKind}:{ChannelId}:{PlayerId}";
     }
 
     /// <summary>
     /// Die Austauschgrenze zum Sprachdienst.
-    /// <para>
-    /// Alles unterhalb dieser Schnittstelle ist anbieterspezifisch, alles darueber - also
-    /// die gesamte Logik fuer Entfernung, Waende, Tueren und Raeume - ist es nicht. Wer
-    /// Vivox spaeter durch etwas anderes ersetzen will, schreibt eine neue Implementierung
-    /// und behaelt sein komplettes Klangverhalten.
-    /// </para>
     /// </summary>
     public interface IVoiceBackend
     {
@@ -54,8 +105,8 @@ namespace Earshot.Voice
         /// </summary>
         event Action<VoiceSpeaker> SpeakerAdded;
 
-        /// <summary>Ein Sprecher hat den Kanal verlassen. Liefert dessen Spieler-ID.</summary>
-        event Action<string> SpeakerRemoved;
+        /// <summary>Ein Sprecher-Pfad hat den Kanal verlassen.</summary>
+        event Action<VoiceSpeakerKey> SpeakerRemoved;
 
         /// <summary>Betritt den Sprachkanal einer Sitzung.</summary>
         Task ConnectAsync(string channelName, string displayName);
@@ -65,21 +116,29 @@ namespace Earshot.Voice
     }
 
     /// <summary>
+    /// Optionale Erweiterung: separater Funkkanal fuer Walkie-Talkies.
+    /// </summary>
+    public interface IVoiceRadioBackend
+    {
+        bool IsRadioChannelJoined(string logicalChannelId);
+
+        void CopyJoinedRadioChannels(List<string> into);
+
+        Task EnsureRadioChannelAsync(string logicalChannelId);
+
+        Task LeaveRadioChannelAsync(string logicalChannelId);
+
+        /// <summary>
+        /// true: nur in den Funkkanal senden (Mund/Proximity stumm auf dem Draht).
+        /// false: wieder nur Proximity senden.
+        /// </summary>
+        Task SetRadioTransmittingAsync(string logicalChannelId, bool transmitting);
+    }
+
+    /// <summary>
     /// Optionale Erweiterung fuer Backends, deren zugrunde liegender Dienst weiss, ob ein
     /// Sprecher GERADE aktiv sendet, und die einen haengen gebliebenen Empfang von aussen
-    /// neu aufbauen koennen. Getrennt von <see cref="IVoiceBackend"/>, damit einfachere
-    /// Backends (Tests, zukuenftige Anbieter) das nicht implementieren muessen.
-    /// <para>
-    /// Der Grund, warum das ueberhaupt noetig ist: <c>AudioSource.isPlaying</c> taugt
-    /// NICHT als Beweis, dass wieder echtes Audio ankommt. Vivox' eigener
-    /// <c>VivoxAudioProcessor</c> pausiert die AudioSource, wenn ueber ~400 ms kein neues
-    /// Netzwerk-Audio ankommt, kann sie aber auch wieder "spielend" markieren, ohne dass
-    /// je wieder echte Sprachdaten fliessen. Deshalb entscheidet <see cref="VoiceRuntime"/>
-    /// ausschliesslich anhand des echten Signalpegels (<see cref="VoiceEmitter.TapIsPlaying"/>),
-    /// ob ein Tap haengt, und fragt hier nur noch, ob der Dienst selbst meint, der
-    /// Teilnehmer rede gerade (um normale Sprechpausen nicht mit einem echten Haenger zu
-    /// verwechseln).
-    /// </para>
+    /// neu aufbauen koennen.
     /// </summary>
     internal interface IVoiceBackendRecovery
     {

@@ -7,39 +7,27 @@ using UnityEngine;
 namespace Earshot.Voice
 {
     /// <summary>
-    /// Sprachuebertragung ueber Unity Vivox.
-    /// <para>
-    /// Zwei Entwurfsentscheidungen praegen diese Klasse und sind der Grund, warum das
-    /// Klangverhalten spaeter frei gestaltbar ist:
-    /// </para>
-    /// <para>
-    /// Erstens ein <b>2D-Kanal statt Vivox' eingebautem 3D-Modus</b>. Im 3D-Modus
-    /// berechnet Vivox die Lautstaerke selbst und nimmt uns damit genau die Kontrolle weg,
-    /// die wir fuer Tueren und Waende brauchen. Im 2D-Kanal kommen alle Stimmen unveraendert
-    /// an, und die raeumliche Berechnung machen wir lokal. Bei bis zu acht Spielern ist die
-    /// dafuer noetige Bandbreite unkritisch.
-    /// </para>
-    /// <para>
-    /// Zweitens <b>Audio Taps</b>. Statt die Stimmen direkt an die Lautsprecher zu geben,
-    /// leitet Vivox jede einzelne in eine normale Unity-AudioSource um. Ab da ist eine
-    /// Stimme fuer Unity ein Geraeusch wie jedes andere - mit allen Filtern, die dazugehoeren.
-    /// </para>
+    /// Sprachuebertragung ueber Unity Vivox — Proximity-Kanal plus optionale Funkkanaele.
     /// </summary>
-    public class VivoxVoiceBackend : IVoiceBackend, IVoiceBackendRecovery
+    public class VivoxVoiceBackend : IVoiceBackend, IVoiceRadioBackend, IVoiceBackendRecovery
     {
-        private readonly Dictionary<string, VivoxParticipant> participants =
-            new Dictionary<string, VivoxParticipant>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<VoiceSpeakerKey, VivoxParticipant> participants =
+            new Dictionary<VoiceSpeakerKey, VivoxParticipant>();
 
-        private string channelName;
+        private readonly HashSet<string> radioChannels =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        private string proximityChannelName;
+        private string transmittingRadioLogicalId;
         private bool initialized;
         private bool micMuted;
 
         public string DisplayName => "Unity Vivox";
 
-        public bool IsConnected => !string.IsNullOrEmpty(channelName);
+        public bool IsConnected => !string.IsNullOrEmpty(proximityChannelName);
 
         public event Action<VoiceSpeaker> SpeakerAdded;
-        public event Action<string> SpeakerRemoved;
+        public event Action<VoiceSpeakerKey> SpeakerRemoved;
 
         public bool MicrophoneMuted
         {
@@ -72,16 +60,14 @@ namespace Earshot.Voice
 
             EarshotVoiceLog.Info($"Sprachkanal '{channel}' wird betreten.");
 
-            // AudioOnly: Textnachrichten laufen ueber das Spiel, nicht ueber Vivox.
             await VivoxService.Instance.JoinGroupChannelAsync(channel, ChatCapability.AudioOnly);
-            await VivoxService.Instance.SetChannelTransmissionModeAsync(TransmissionMode.All, channel);
+            await VivoxService.Instance.SetChannelTransmissionModeAsync(TransmissionMode.Single, channel);
 
-            channelName = channel;
+            proximityChannelName = channel;
 
-            // Der Stummschaltungswunsch kann gesetzt worden sein, bevor Vivox bereit war.
             if (micMuted) VivoxService.Instance.MuteInputDevice();
 
-            AttachExistingParticipants();
+            AttachExistingParticipants(channel);
 
             EarshotVoiceLog.Info(
                 "Sprachkanal betreten. Eigene Vivox-ID: " +
@@ -102,22 +88,126 @@ namespace Earshot.Voice
             }
 
             participants.Clear();
+            radioChannels.Clear();
+            transmittingRadioLogicalId = null;
 
-            if (!string.IsNullOrEmpty(channelName))
+            var toLeave = new List<string>();
+            if (!string.IsNullOrEmpty(proximityChannelName)) toLeave.Add(proximityChannelName);
+
+            foreach (var pair in VivoxService.Instance.ActiveChannels)
             {
-                string leaving = channelName;
-                channelName = null;
+                if (!toLeave.Contains(pair.Key)) toLeave.Add(pair.Key);
+            }
 
+            proximityChannelName = null;
+
+            for (int i = 0; i < toLeave.Count; i++)
+            {
+                string leaving = toLeave[i];
                 try
                 {
                     await VivoxService.Instance.LeaveChannelAsync(leaving);
-                    EarshotVoiceLog.Info("Sprachkanal verlassen.");
+                    EarshotVoiceLog.Info($"Kanal verlassen: {leaving}");
                 }
                 catch (Exception ex)
                 {
-                    EarshotVoiceLog.Warn($"Sprachkanal konnte nicht sauber verlassen werden: {ex.Message}");
+                    EarshotVoiceLog.Warn($"Kanal '{leaving}' konnte nicht sauber verlassen werden: {ex.Message}");
                 }
             }
+        }
+
+        public bool IsRadioChannelJoined(string logicalChannelId)
+        {
+            string id = WalkieRules.SanitizeChannelId(logicalChannelId);
+            return radioChannels.Contains(id);
+        }
+
+        public void CopyJoinedRadioChannels(List<string> into)
+        {
+            if (into == null) return;
+            into.Clear();
+            foreach (string id in radioChannels) into.Add(id);
+        }
+
+        public async Task EnsureRadioChannelAsync(string logicalChannelId)
+        {
+            if (!IsConnected) return;
+
+            string id = WalkieRules.SanitizeChannelId(logicalChannelId);
+            if (radioChannels.Contains(id)) return;
+
+            string vivoxName = WalkieRules.ToVivoxRadioChannel(id);
+            EarshotVoiceLog.Info($"Funkkanal '{id}' ({vivoxName}) wird betreten.");
+
+            await VivoxService.Instance.JoinGroupChannelAsync(vivoxName, ChatCapability.AudioOnly);
+
+            // Nach Join nicht automatisch auf Funk senden — Proximity bleibt Sendekanal,
+            // bis SetRadioTransmittingAsync(true) kommt.
+            if (string.IsNullOrEmpty(transmittingRadioLogicalId))
+            {
+                await VivoxService.Instance.SetChannelTransmissionModeAsync(
+                    TransmissionMode.Single, proximityChannelName);
+            }
+
+            radioChannels.Add(id);
+            AttachExistingParticipants(vivoxName);
+        }
+
+        public async Task LeaveRadioChannelAsync(string logicalChannelId)
+        {
+            string id = WalkieRules.SanitizeChannelId(logicalChannelId);
+            if (!radioChannels.Remove(id)) return;
+
+            if (string.Equals(transmittingRadioLogicalId, id, StringComparison.OrdinalIgnoreCase))
+            {
+                transmittingRadioLogicalId = null;
+                if (IsConnected)
+                {
+                    await VivoxService.Instance.SetChannelTransmissionModeAsync(
+                        TransmissionMode.Single, proximityChannelName);
+                }
+            }
+
+            string vivoxName = WalkieRules.ToVivoxRadioChannel(id);
+            RemoveParticipantsForChannel(vivoxName);
+
+            try
+            {
+                await VivoxService.Instance.LeaveChannelAsync(vivoxName);
+                EarshotVoiceLog.Info($"Funkkanal verlassen: {id}");
+            }
+            catch (Exception ex)
+            {
+                EarshotVoiceLog.Warn($"Funkkanal '{id}' konnte nicht sauber verlassen werden: {ex.Message}");
+            }
+        }
+
+        public async Task SetRadioTransmittingAsync(string logicalChannelId, bool transmitting)
+        {
+            if (!IsConnected) return;
+
+            if (!transmitting)
+            {
+                transmittingRadioLogicalId = null;
+                await VivoxService.Instance.SetChannelTransmissionModeAsync(
+                    TransmissionMode.Single, proximityChannelName);
+                return;
+            }
+
+            string id = WalkieRules.SanitizeChannelId(logicalChannelId);
+            if (!radioChannels.Contains(id))
+            {
+                await EnsureRadioChannelAsync(id);
+            }
+
+            string vivoxName = WalkieRules.ToVivoxRadioChannel(id);
+            transmittingRadioLogicalId = id;
+
+            // Funk ersetzt Mund: nur in den Funkkanal senden.
+            await VivoxService.Instance.SetChannelTransmissionModeAsync(
+                TransmissionMode.Single, vivoxName);
+
+            VoiceSessionLog.Note($"FUNK sendet auf '{id}' (Proximity stumm auf dem Draht)");
         }
 
         private async Task EnsureLoggedInAsync(string displayName)
@@ -132,20 +222,19 @@ namespace Earshot.Voice
 
             var options = new LoginOptions
             {
-                DisplayName = string.IsNullOrWhiteSpace(displayName) ? "Player" : displayName
+                DisplayName = string.IsNullOrWhiteSpace(displayName) ? "Player" : displayName,
+                // Mehrere Kanaele: sonst springt Vivox die Sendung auf den zuletzt betretenen.
+                DisableAutomaticChannelTransmissionSwap = true
             };
 
             EarshotVoiceLog.Info("Anmeldung bei Vivox laeuft.");
             await VivoxService.Instance.LoginAsync(options);
         }
 
-        /// <summary>
-        /// Teilnehmer, die schon im Kanal waren, bevor wir zugehoert haben.
-        /// </summary>
-        private void AttachExistingParticipants()
+        private void AttachExistingParticipants(string channel)
         {
-            if (string.IsNullOrEmpty(channelName)) return;
-            if (!VivoxService.Instance.ActiveChannels.TryGetValue(channelName, out var list)) return;
+            if (string.IsNullOrEmpty(channel)) return;
+            if (!VivoxService.Instance.ActiveChannels.TryGetValue(channel, out var list)) return;
 
             for (int i = 0; i < list.Count; i++)
             {
@@ -153,13 +242,8 @@ namespace Earshot.Voice
             }
         }
 
-        /// <summary>
-        /// Erzeugt fuer einen neuen Sprecher einen Audio Tap und meldet die entstandene
-        /// AudioSource nach oben.
-        /// </summary>
         private void OnParticipantAdded(VivoxParticipant participant)
         {
-            // Sich selbst zu hoeren waere ein Echo. Vivox meldet den eigenen Teilnehmer mit.
             if (participant == null || participant.IsSelf) return;
 
             TryCreateTap(participant);
@@ -173,24 +257,38 @@ namespace Earshot.Voice
 
         private void OnParticipantAudioReady()
         {
-            AttachExistingParticipants();
+            if (!string.IsNullOrEmpty(proximityChannelName))
+            {
+                AttachExistingParticipants(proximityChannelName);
+            }
+
+            foreach (string id in radioChannels)
+            {
+                AttachExistingParticipants(WalkieRules.ToVivoxRadioChannel(id));
+            }
         }
 
         private void TryCreateTap(VivoxParticipant participant)
         {
             if (participant == null || participant.IsSelf) return;
-            if (participants.ContainsKey(participant.PlayerId)) return;
+
+            if (!TryClassify(participant.ChannelName, out var pathKind, out string logicalId))
+            {
+                return;
+            }
+
+            var key = new VoiceSpeakerKey(participant.PlayerId, pathKind, logicalId);
+            if (participants.ContainsKey(key)) return;
 
             try
             {
-                // Der zweite Parameter unterdrueckt den Standard-Kanalmix fuer diesen
-                // Sprecher. Ohne ihn hoert man jede Stimme doppelt: einmal flach aus dem
-                // Kanalmix und einmal raeumlich aus unserem Tap.
-                participant.CreateVivoxParticipantTap(
-                    $"Earshot Voice - {participant.PlayerId}", true);
+                string tapName = pathKind == VoicePathKind.Radio
+                    ? $"Earshot Walkie - {logicalId} - {participant.PlayerId}"
+                    : $"Earshot Voice - {participant.PlayerId}";
+
+                participant.CreateVivoxParticipantTap(tapName, true);
 
                 var source = participant.ParticipantTapAudioSource;
-
                 if (source == null)
                 {
                     EarshotVoiceLog.Warn(
@@ -199,10 +297,14 @@ namespace Earshot.Voice
                     return;
                 }
 
-                participants[participant.PlayerId] = participant;
+                participants[key] = participant;
 
-                EarshotVoiceLog.Info($"Stimme empfangen von {participant.PlayerId}.");
-                SpeakerAdded?.Invoke(new VoiceSpeaker(participant.PlayerId, source));
+                EarshotVoiceLog.Info(
+                    pathKind == VoicePathKind.Radio
+                        ? $"Funkstimme empfangen von {participant.PlayerId} auf '{logicalId}'."
+                        : $"Stimme empfangen von {participant.PlayerId}.");
+
+                SpeakerAdded?.Invoke(new VoiceSpeaker(participant.PlayerId, source, pathKind, logicalId));
             }
             catch (Exception ex)
             {
@@ -216,44 +318,113 @@ namespace Earshot.Voice
 
             participant.ParticipantAudioStateChanged -= OnParticipantAudioReady;
 
-            if (!participants.Remove(participant.PlayerId)) return;
-
-            EarshotVoiceLog.Info($"Stimme verstummt: {participant.PlayerId}.");
-
-            // Das Tap-GameObject raeumt Vivox selbst ab, sobald der Teilnehmer geht.
-            // Ein eigener Destroy-Aufruf wuerde hier nur Schaden anrichten.
-            SpeakerRemoved?.Invoke(participant.PlayerId);
-        }
-
-        /// <summary>Siehe <see cref="IVoiceBackendRecovery.IsSpeaking"/>.</summary>
-        bool IVoiceBackendRecovery.IsSpeaking(string playerId)
-        {
-            if (!participants.TryGetValue(playerId, out var participant) || participant == null)
+            if (!TryClassify(participant.ChannelName, out var pathKind, out string logicalId))
             {
-                return false;
+                return;
             }
 
-            return participant.SpeechDetected || participant.AudioEnergy > 0.02;
+            var key = new VoiceSpeakerKey(participant.PlayerId, pathKind, logicalId);
+            if (!participants.Remove(key)) return;
+
+            EarshotVoiceLog.Info(
+                pathKind == VoicePathKind.Radio
+                    ? $"Funkstimme verstummt: {participant.PlayerId} ({logicalId})."
+                    : $"Stimme verstummt: {participant.PlayerId}.");
+
+            SpeakerRemoved?.Invoke(key);
         }
 
-        /// <summary>
-        /// Baut den Audio Tap eines Teilnehmers komplett neu auf. Das ist der einzige
-        /// Hebel, den wir von aussen haben, um Vivox' eigene, haengen gebliebene
-        /// Audio-Zustellung fuer genau diesen Teilnehmer zu erzwingen - ein erneutes
-        /// Setzen von Lautstaerke o.ae. reicht nicht, weil das Problem naeher an der
-        /// Netzwerk-/Decoder-Ebene von Vivox liegt, nicht an unserer Pipeline.
-        /// Siehe <see cref="IVoiceBackendRecovery.RecoverSpeaker"/>.
-        /// </summary>
+        private void RemoveParticipantsForChannel(string vivoxChannelName)
+        {
+            if (!TryClassify(vivoxChannelName, out var pathKind, out string logicalId)) return;
+
+            var toRemove = new List<VoiceSpeakerKey>();
+            foreach (var pair in participants)
+            {
+                if (pair.Key.PathKind == pathKind &&
+                    string.Equals(pair.Key.ChannelId, logicalId, StringComparison.OrdinalIgnoreCase))
+                {
+                    toRemove.Add(pair.Key);
+                }
+            }
+
+            for (int i = 0; i < toRemove.Count; i++)
+            {
+                var key = toRemove[i];
+                if (!participants.Remove(key)) continue;
+                SpeakerRemoved?.Invoke(key);
+            }
+        }
+
+        private bool TryClassify(string vivoxChannelName, out VoicePathKind pathKind, out string logicalId)
+        {
+            pathKind = VoicePathKind.Proximity;
+            logicalId = string.Empty;
+
+            if (string.IsNullOrEmpty(vivoxChannelName)) return false;
+
+            if (WalkieRules.TryParseLogicalChannel(vivoxChannelName, out logicalId))
+            {
+                pathKind = VoicePathKind.Radio;
+                return true;
+            }
+
+            if (string.Equals(vivoxChannelName, proximityChannelName, StringComparison.Ordinal))
+            {
+                pathKind = VoicePathKind.Proximity;
+                logicalId = vivoxChannelName;
+                return true;
+            }
+
+            return false;
+        }
+
+        bool IVoiceBackendRecovery.IsSpeaking(string playerId)
+        {
+            foreach (var pair in participants)
+            {
+                if (!string.Equals(pair.Key.PlayerId, playerId, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var participant = pair.Value;
+                if (participant != null &&
+                    (participant.SpeechDetected || participant.AudioEnergy > 0.02))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         void IVoiceBackendRecovery.RecoverSpeaker(string playerId)
         {
-            if (!participants.TryGetValue(playerId, out var participant) || participant == null) return;
+            var keys = new List<VoiceSpeakerKey>();
+            foreach (var pair in participants)
+            {
+                if (string.Equals(pair.Key.PlayerId, playerId, StringComparison.OrdinalIgnoreCase))
+                {
+                    keys.Add(pair.Key);
+                }
+            }
+
+            for (int i = 0; i < keys.Count; i++)
+            {
+                RecoverKey(keys[i]);
+            }
+        }
+
+        private void RecoverKey(VoiceSpeakerKey key)
+        {
+            if (!participants.TryGetValue(key, out var participant) || participant == null) return;
 
             VoiceSessionLog.Alert(
-                $"SELBSTHEILUNG: Tap von {playerId} liefert kein echtes Signal mehr, " +
-                "obwohl Vivox 'redet gerade' meldet - kein Nachschub, der sich von selbst " +
-                "erholt. Tap wird neu aufgebaut.");
+                $"SELBSTHEILUNG: Tap von {key} liefert kein echtes Signal mehr, " +
+                "obwohl Vivox 'redet gerade' meldet - Tap wird neu aufgebaut.");
 
-            bool wasTracked = participants.Remove(playerId);
+            bool wasTracked = participants.Remove(key);
 
             try
             {
@@ -261,10 +432,10 @@ namespace Earshot.Voice
             }
             catch (Exception ex)
             {
-                EarshotVoiceLog.Exception($"Alten Tap fuer {playerId} loeschen fehlgeschlagen", ex);
+                EarshotVoiceLog.Exception($"Alten Tap fuer {key} loeschen fehlgeschlagen", ex);
             }
 
-            if (wasTracked) SpeakerRemoved?.Invoke(playerId);
+            if (wasTracked) SpeakerRemoved?.Invoke(key);
 
             TryCreateTap(participant);
         }

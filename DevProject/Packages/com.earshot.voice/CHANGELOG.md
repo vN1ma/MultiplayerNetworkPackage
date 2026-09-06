@@ -8,6 +8,10 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Hinzugefuegt
 
+- Phase 4 Walkie-Talkie: `EarshotWalkieTalkie`, Vivox-Funkkanal (`earshot.radio.*`),
+  Half-Duplex, lokales Empfangs-Delay, Leak am Geraet, Mund-Daempfung beim Funken
+- Mitnahme-Doku `docs/walkie-talkie-game-integration.md` fuer Prefab/Input im Spiel
+- EditMode-Tests `WalkieRulesTests`
 - Paket-Grundgeruest, netzwerkunabhaengig: `IProximityVoicePlayer` als Bruecke zu einem
   beliebigen Multiplayer-Framework, `VoiceRoster` als generisches Register
 - `EarshotProximityVoice` als einzige Pflichtkomponente auf dem Player (Zero-Config- und
@@ -26,3 +30,8 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 - `Voice Source Color` pro Quelle: Dumpf, Hall, blechern, Presets (Testlautsprecher, Player, AudioSource)
 - Hoertest: `Testaudio` statt synthetischem Loop; E pausiert/setzt fort
 - Schallweg folgt Tueren/Treppen; kein Cutoff mehr, wenn man knapp aus der Zone tritt
+
+### Geaendert
+
+- `IVoiceBackend`: `VoicePathKind` / `VoiceSpeakerKey`; optionales `IVoiceRadioBackend`
+- Beim Walkie-Senden nur Funkkanal (`TransmissionMode.Single`), nicht parallel zum Proximity-Mund

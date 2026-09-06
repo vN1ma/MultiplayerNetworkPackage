@@ -42,12 +42,22 @@ namespace Earshot.Voice
         private volatile bool sawSignalThisFrame;
         private float lastSignalTime = -10f;
         private bool debugLoop;
+        private WalkieAudioDelay radioDelay;
 
         /// <summary>Unity-Gaming-Services-ID des Sprechers.</summary>
         public string PlayerId { get; private set; }
 
+        /// <summary>Mund-Naehe oder Funkgeraet.</summary>
+        public VoicePathKind PathKind { get; private set; }
+
+        /// <summary>Proximity-Kanalname oder logische Funkkanal-ID.</summary>
+        public string ChannelId { get; private set; }
+
         /// <summary>Der Punkt, an dem die Stimme entsteht. Null, wenn noch kein Avatar bekannt ist.</summary>
         public Transform Anchor { get; set; }
+
+        /// <summary>Optional: zusaetzliche Lautstaerke-Skalierung (Mund daempfen bei Funk).</summary>
+        public float VolumeScale { get; set; } = 1f;
 
         /// <summary>Der zuletzt angewendete Zustand. Nuetzlich fuer Debug-Anzeigen.</summary>
         public VoiceSample Current => current;
@@ -99,11 +109,19 @@ namespace Earshot.Voice
         /// </summary>
         public bool TapAudioSourceIsPlaying => tap != null && tap.isPlaying;
 
-        internal void Initialize(string playerId, AudioSource audioSource, VoiceProfile voiceProfile)
+        internal void Initialize(
+            string playerId,
+            AudioSource audioSource,
+            VoiceProfile voiceProfile,
+            VoicePathKind pathKind = VoicePathKind.Proximity,
+            string channelId = null)
         {
             PlayerId = playerId;
+            PathKind = pathKind;
+            ChannelId = channelId ?? string.Empty;
             tap = audioSource;
             profile = voiceProfile;
+            VolumeScale = 1f;
 
             ConfigureTap();
             AttachFilters(gameObject);
@@ -112,10 +130,21 @@ namespace Earshot.Voice
             capture = gameObject.AddComponent<VoiceTapCapture>();
             capture.Emitter = this;
 
+            if (pathKind == VoicePathKind.Radio)
+            {
+                radioDelay = gameObject.AddComponent<WalkieAudioDelay>();
+                radioDelay.SetDelaySeconds(WalkieTalkieRegistry.ActiveTransmissionDelaySeconds);
+            }
+
             current = VoiceSample.Default;
             current.Volume = 0.5f;
             target = current;
             Apply();
+        }
+
+        internal void SetRadioDelaySeconds(float seconds)
+        {
+            if (radioDelay != null) radioDelay.SetDelaySeconds(seconds);
         }
 
         private void ConfigureTap()
@@ -282,7 +311,9 @@ namespace Earshot.Voice
         {
             if (tap == null) return;
 
-            float volume = current.Muted ? 0f : current.Volume * EarshotVoice.HeardVoiceVolume;
+            float volume = current.Muted
+                ? 0f
+                : current.Volume * EarshotVoice.HeardVoiceVolume * Mathf.Clamp01(VolumeScale);
 
             tap.volume = volume;
             tap.spatialBlend = current.SpatialBlend;

@@ -19,6 +19,8 @@ namespace Earshot.Voice
 
         private readonly VoicePipeline pipeline = new VoicePipeline();
         private readonly List<VoiceEmitter> emitters = new List<VoiceEmitter>();
+        private readonly Dictionary<VoiceSpeakerKey, VoiceEmitter> byKey =
+            new Dictionary<VoiceSpeakerKey, VoiceEmitter>();
         private readonly Dictionary<string, VoiceEmitter> byPlayerId =
             new Dictionary<string, VoiceEmitter>(System.StringComparer.OrdinalIgnoreCase);
 
@@ -65,6 +67,7 @@ namespace Earshot.Voice
             DontDestroyOnLoad(go);
 
             instance = go.AddComponent<VoiceRuntime>();
+            WalkieRadioSync.EnsureOn(instance);
             return instance;
         }
 
@@ -82,6 +85,8 @@ namespace Earshot.Voice
             backend.SpeakerRemoved += OnSpeakerRemoved;
 
             VoiceRoster.IdentityReady += OnIdentityReady;
+            WalkieRadioSync.EnsureOn(this);
+            WalkieTalkieRegistry.NotifyChanged();
         }
 
         internal void DetachBackend()
@@ -109,6 +114,7 @@ namespace Earshot.Voice
                 emitters.RemoveAt(i);
             }
 
+            byKey.Clear();
             byPlayerId.Clear();
             deadSince.Clear();
             lastRecoveryAttempt.Clear();
@@ -133,29 +139,74 @@ namespace Earshot.Voice
         private void OnSpeakerAdded(VoiceSpeaker speaker)
         {
             if (speaker?.Source == null) return;
-            if (byPlayerId.ContainsKey(speaker.PlayerId)) return;
+
+            var key = new VoiceSpeakerKey(speaker.PlayerId, speaker.PathKind, speaker.ChannelId);
+            if (byKey.ContainsKey(key)) return;
 
             var profile = EarshotVoiceSettings.Instance.VoiceProfile;
             var emitter = speaker.Source.gameObject.AddComponent<VoiceEmitter>();
-            emitter.Initialize(speaker.PlayerId, speaker.Source, profile);
+            emitter.Initialize(
+                speaker.PlayerId,
+                speaker.Source,
+                profile,
+                speaker.PathKind,
+                speaker.ChannelId);
 
-            TryBindEmitter(emitter);
+            if (speaker.PathKind == VoicePathKind.Radio)
+            {
+                WalkieTalkieRegistry.MarkRadioSpeaker(speaker.PlayerId, true);
+            }
+            else
+            {
+                TryBindEmitter(emitter);
+                byPlayerId[speaker.PlayerId] = emitter;
+            }
 
             emitters.Add(emitter);
-            byPlayerId[speaker.PlayerId] = emitter;
-            VoiceSessionLog.Note($"TAP an: {speaker.PlayerId}");
+            byKey[key] = emitter;
+            VoiceSessionLog.Note(
+                speaker.PathKind == VoicePathKind.Radio
+                    ? $"TAP Funk an: {speaker.PlayerId} @{speaker.ChannelId}"
+                    : $"TAP an: {speaker.PlayerId}");
         }
 
-        private void OnSpeakerRemoved(string playerId)
+        private void OnSpeakerRemoved(VoiceSpeakerKey key)
         {
-            if (!byPlayerId.TryGetValue(playerId, out var emitter)) return;
+            if (!byKey.TryGetValue(key, out var emitter)) return;
 
-            byPlayerId.Remove(playerId);
+            byKey.Remove(key);
             emitters.Remove(emitter);
-            VoiceSessionLog.Note($"TAP weg: {playerId}");
 
-            // Nur die eigene Komponente entfernen. Das GameObject gehoert dem Backend,
-            // und bei Vivox raeumt es der Dienst selbst ab.
+            if (key.PathKind == VoicePathKind.Proximity &&
+                byPlayerId.TryGetValue(key.PlayerId, out var mapped) &&
+                mapped == emitter)
+            {
+                byPlayerId.Remove(key.PlayerId);
+            }
+
+            if (key.PathKind == VoicePathKind.Radio)
+            {
+                bool stillRadio = false;
+                for (int i = 0; i < emitters.Count; i++)
+                {
+                    var e = emitters[i];
+                    if (e != null &&
+                        e.PathKind == VoicePathKind.Radio &&
+                        string.Equals(e.PlayerId, key.PlayerId, System.StringComparison.OrdinalIgnoreCase))
+                    {
+                        stillRadio = true;
+                        break;
+                    }
+                }
+
+                if (!stillRadio) WalkieTalkieRegistry.MarkRadioSpeaker(key.PlayerId, false);
+            }
+
+            VoiceSessionLog.Note(
+                key.PathKind == VoicePathKind.Radio
+                    ? $"TAP Funk weg: {key.PlayerId} @{key.ChannelId}"
+                    : $"TAP weg: {key.PlayerId}");
+
             if (emitter != null) Destroy(emitter);
         }
 
@@ -184,6 +235,7 @@ namespace Earshot.Voice
         private void TryBindEmitter(VoiceEmitter emitter)
         {
             if (emitter == null) return;
+            if (emitter.PathKind == VoicePathKind.Radio) return;
             if (emitter.PlayerId != null &&
                 emitter.PlayerId.StartsWith("debug:", System.StringComparison.Ordinal))
             {
@@ -275,6 +327,12 @@ namespace Earshot.Voice
                 var emitter = emitters[i];
                 if (emitter == null) continue;
 
+                if (emitter.PathKind == VoicePathKind.Radio)
+                {
+                    EvaluateRadioEmitter(emitter, listenerPosition);
+                    continue;
+                }
+
                 if (emitter.Anchor == null)
                 {
                     TryBindEmitter(emitter);
@@ -308,9 +366,89 @@ namespace Earshot.Voice
                     sample.Clamp();
                 }
 
+                // Funk ersetzt Mund: Proximity leiser, solange derselbe Sprecher funkt.
+                bool onRadio = HasActiveRadioSpeech(emitter.PlayerId);
+                float dampening = WalkieTalkieRegistry.ActiveMouthDampening;
+                emitter.VolumeScale = WalkieRules.MouthVolumeScale(onRadio, dampening);
+
                 emitter.LastContext = context;
                 emitter.SetTarget(in sample);
             }
+        }
+
+        private void EvaluateRadioEmitter(VoiceEmitter emitter, Vector3 listenerPosition)
+        {
+            var settings = WalkieTalkieRegistry.GetSettingsDevice(emitter.ChannelId);
+            float volume = settings != null ? settings.RadioVolume : 0.75f;
+            float highPass = settings != null ? settings.HighPassHz : 800f;
+            float lowPass = settings != null ? settings.LowPassHz : 3500f;
+            float maxDist = settings != null ? settings.MaxHearingDistance : 8f;
+            float delay = settings != null
+                ? settings.TransmissionDelaySeconds
+                : WalkieTalkieRegistry.ActiveTransmissionDelaySeconds;
+
+            emitter.SetRadioDelaySeconds(delay);
+
+            Transform anchor = WalkieTalkieRegistry.GetBestReceiveAnchor(
+                emitter.ChannelId, listenerPosition);
+            emitter.Anchor = anchor;
+
+            bool anyPowered = WalkieTalkieRegistry.HasPoweredDeviceOnChannel(emitter.ChannelId);
+            bool play = WalkieRules.ShouldPlayReceivedRadio(
+                anyPowered, WalkieTalkieRegistry.LocalIsTransmitting);
+
+            var sample = VoiceSample.Default;
+            sample.SpatialBlend = 1f;
+            sample.ReverbMix = 0f;
+            sample.HighPassHz = highPass;
+            sample.LowPassHz = lowPass;
+
+            if (!play || anchor == null)
+            {
+                sample.Muted = true;
+                sample.Volume = 0f;
+            }
+            else
+            {
+                float distance = Vector3.Distance(listenerPosition, anchor.position);
+                float falloff = 1f - Mathf.Clamp01(distance / Mathf.Max(1f, maxDist));
+                // Weicher Ausklang am Rand des Leak-Radius.
+                falloff *= falloff;
+                sample.Volume = volume * falloff;
+                sample.Muted = sample.Volume <= 0.001f;
+            }
+
+            sample.Clamp();
+            emitter.VolumeScale = 1f;
+            emitter.LastContext = new VoiceContext
+            {
+                ListenerPosition = listenerPosition,
+                SpeakerPosition = anchor != null ? anchor.position : listenerPosition,
+                ApparentPosition = anchor != null ? anchor.position : listenerPosition,
+                Distance = anchor != null
+                    ? Vector3.Distance(listenerPosition, anchor.position)
+                    : 0f,
+                HearingDistance = maxDist,
+                PortalOpenness = 1f
+            };
+            emitter.SetTarget(in sample);
+        }
+
+        private bool HasActiveRadioSpeech(string playerId)
+        {
+            for (int i = 0; i < emitters.Count; i++)
+            {
+                var e = emitters[i];
+                if (e == null || e.PathKind != VoicePathKind.Radio) continue;
+                if (!string.Equals(e.PlayerId, playerId, System.StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (e.TapIsPlaying) return true;
+            }
+
+            return false;
         }
 
         /// <summary>

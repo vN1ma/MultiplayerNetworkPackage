@@ -75,6 +75,11 @@ Kontext: Chat-Analyse zu Vivox-Fähigkeiten (native 3D positional, Conversationa
 Entscheidung/Fakt: Vivox kann Distanz/Richtung nativ, aber Occlusion, Portale und der Raum-Graph brauchen lokale Kontrolle über die VoicePipeline — beides parallel würde doppelt dämpfen. Earshot nutzt Vivox weiter als flachen 2D-Kanal; Räumlichkeit entsteht ausschließlich lokal. Vivox-Positional kommt höchstens später als Culling-Vorfilter in Betracht (ROADMAP v1.5).
 Auswirkung: Modifier-Design in `com.earshot.voice`; Basis-Distanz-Falloff bleibt bewusst eigene Logik, wird aber nicht um Vivox-Positional ergänzt.
 
+## [2026-09-06] Walkie V1: Half-Duplex + Delay, Input im Spiel
+Kontext: Nutzer will echtes Walkie-Verhalten (PTT blockiert Empfang, versetzter Ton) und Optik/E/G/Q/LMB im Game-Repo.
+Entscheidung/Fakt: Half-Duplex und lokales Empfangs-Delay sind Teil von Phase-4-V1 (früher „bewusst nicht"). Package liefert `EarshotWalkieTalkie` + Vivox-Funkkanal; Spiel verdrahtet Pickup/Power/PTT. Beim Senden nur Funkkanal (`TransmissionMode.Single`), nicht parallel Proximity+Funk.
+Auswirkung: `docs/walkie-talkie-game-integration.md`; Phase 4 in PROGRESS/Plan angepasst.
+
 ## [2026-09-06] Walkie-Talkie V1: Funk ersetzt die Mund-Stimme
 Kontext: Brainstorming im Projektchat zu Übertragungsgeräten (Walkie-Talkie als Welt-Objekt)
 Entscheidung/Fakt: Solange ein Spieler über ein Walkie funkt, wird seine Stimme bei allen Empfängern am eigenen Gerät abgespielt (blechernes EQ-Band, Position = Geräte-Anchor) und die Mund-Stimme gedämpft — nicht beides parallel. Bewusste V1-Vereinfachung gegen das Vivox-Risiko von Mehrfach-Taps pro Sprecher. Später evtl. Verfeinerung Richtung dominanter Pfad mit Überblendung.

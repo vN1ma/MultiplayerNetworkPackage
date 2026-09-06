@@ -36,3 +36,9 @@ Optional, nicht auf den Player: `Earshot Voice/Mute Hotkey`. Raeume und Tueren:
 `VoiceZone` / `VoicePortal` (Treppe = Kind Stair + Lauflaenge). Menue
 `Earshot Voice/Authoring` backt den Graph und zeigt Warnungen. Ohne Zonen gilt
 weiter die Sichtlinie.
+
+## Walkie-Talkie (optional)
+
+`EarshotWalkieTalkie` an ein Welt-Objekt. Funkkanal, An/Aus, PTT und Empfang am
+Geraet (Half-Duplex, Delay) liegen im Paket. Optik und Tasten (E/G/Q/LMB) baust du
+im Spiel — Anleitung: Repo-Root `docs/walkie-talkie-game-integration.md`.
