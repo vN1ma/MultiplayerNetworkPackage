@@ -27,7 +27,18 @@ namespace Earshot.Voice.Modifiers
             new Keyframe(0f, 0f, 0f, 1.6f),
             new Keyframe(1f, 1f, 0.4f, 0f));
 
+        [SerializeField, Range(80f, 4000f)]
+        private float closedCutoffHz = 300f;
+
         public override int Order => VoiceModifierOrder.Portal;
+
+        public void Configure(VoiceHearingTuning tuning)
+        {
+            if (tuning == null) return;
+            SetEnabled(tuning.enableDoors);
+            if (tuning.doorOpennessResponse != null) opennessResponse = tuning.doorOpennessResponse;
+            closedCutoffHz = tuning.doorClosedCutoffHz;
+        }
 
         public override void Apply(in VoiceContext context, ref VoiceSample sample)
         {
@@ -49,8 +60,9 @@ namespace Earshot.Voice.Modifiers
 
             // Der Muffle-Regler von 0 bis 1 wird logarithmisch auf eine Frequenz
             // abgebildet, damit die obere Haelfte des Reglers noch hoerbar etwas tut.
+            float floor = Mathf.Max(80f, closedCutoffHz);
             float cutoff = Mathf.Exp(Mathf.Lerp(
-                Mathf.Log(VoiceSample.NoLowPass), Mathf.Log(300f), muffle));
+                Mathf.Log(VoiceSample.NoLowPass), Mathf.Log(floor), muffle));
 
             sample.LowPassHz = Mathf.Min(sample.LowPassHz, cutoff);
         }

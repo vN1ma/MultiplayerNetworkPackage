@@ -10,6 +10,16 @@ Auswirkung: welches Arbeitspaket/welche Datei betroffen ist
 ```
 
 
+## [2026-09-06] Klangfarbe ist optional an der Quelle
+Kontext: Nutzer will Dumpf/Hall am angeklickten Test-Emitter einstellen, und dasselbe an alles haengen was Ton spielt.
+Entscheidung/Fakt: `VoiceSourceColor` ist optional (wie Zone/Portal), nicht am Player Pflicht. Testlautsprecher bekommen sie automatisch. Wirkt nach der Welt-Pipeline; an einer normalen AudioSource faerbt sie den Clip direkt.
+Auswirkung: Hoertest-Bloecke im Inspector justierbar. Keine zweite Pflichtkomponente auf dem Player.
+
+## [2026-09-06] Hoerregler leben am Player, nicht im Pflicht-Asset
+Kontext: Nutzer erwartet Distanz, Dumpf, Hall und Cutoff-Glaettung am Player-Prefab, nicht versteckt in Modifier-Assets.
+Entscheidung/Fakt: `VoiceHearingTuning` liegt an `EarshotProximityVoice`. Der lokale Spieler schreibt die Werte zur Laufzeit ins Profil und die Standard-Module. Ein Voice-Profile-Asset bleibt optional (Advanced).
+Auswirkung: Keine zweite Pflichtkomponente. Paket im Spiel nach Push updaten, Prefab Inspector neu ansehen.
+
 ## [2026-09-06] Hoertest-Szene gehoert nach Assets
 Kontext: Unity-Fehler "It is not allowed to open a scene in a read-only package" und Warnung zu immutable packages, als die Szene unter `Packages/com.earshot.voice/Scenes` erzeugt wurde.
 Entscheidung/Fakt: Git-URL-Pakete sind schreibgeschuetzt. Erzeugte Szenen liegen im Spiel unter `Assets/`.

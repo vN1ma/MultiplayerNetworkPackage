@@ -20,10 +20,10 @@ namespace Earshot.Voice
         private const int MaxHits = 8;
 
         /// <summary>
-        /// Ab so vielen massiven Waenden gilt der Weg als vollstaendig blockiert.
-        /// Eine einzige Innenwand muss schon dumpf klingen; zwei waeren ein Keller.
+        /// Ab so vielen massiven Waenden gilt der Weg als vollstaendig blockiert,
+        /// falls das Profil keinen eigenen Wert setzt.
         /// </summary>
-        private const float FullOcclusionHits = 1f;
+        private const float DefaultFullOcclusionHits = 1f;
 
         private readonly RaycastHit[] hitBuffer = new RaycastHit[MaxHits];
         private readonly Collider[] zoneBuffer = new Collider[MaxHits];
@@ -90,6 +90,7 @@ namespace Earshot.Voice
                 }
             }
 
+            profile.ApplyHearingLimits(context.HearingDistance, ref sample);
             sample.Clamp();
             return sample;
         }
@@ -312,7 +313,10 @@ namespace Earshot.Voice
                 solidHits++;
             }
 
-            float amount = Mathf.Clamp01(solidHits / FullOcclusionHits);
+            float fullHits = profile != null
+                ? Mathf.Max(0.5f, profile.WallsUntilFullMuffle)
+                : DefaultFullOcclusionHits;
+            float amount = Mathf.Clamp01(solidHits / fullHits);
             if (amount < bestOcclusion) bestOcclusion = amount;
         }
 

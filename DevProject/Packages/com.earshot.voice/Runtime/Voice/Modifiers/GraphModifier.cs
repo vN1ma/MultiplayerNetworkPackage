@@ -22,6 +22,14 @@ namespace Earshot.Voice.Modifiers
 
         public override int Order => VoiceModifierOrder.Graph;
 
+        public void Configure(VoiceHearingTuning tuning)
+        {
+            if (tuning == null) return;
+            SetEnabled(tuning.enableGraphPath);
+            closedVolume = tuning.graphClosedVolume;
+            closedCutoffHz = tuning.graphClosedCutoffHz;
+        }
+
         public override void Apply(in VoiceContext context, ref VoiceSample sample)
         {
             if (!context.UsedGraph) return;

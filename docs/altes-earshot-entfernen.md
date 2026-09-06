@@ -220,15 +220,15 @@ Abhaengigkeit mit.
 
 ### 8.2 Settings (optional)
 
-Ohne Asset gelten Laufzeit-Standardwerte. Nur anlegen, wenn ihr Hoerweite oder
-Profil aendern wollt. Nicht das alte `EarshotSettings` wiederverwenden.
+Distanz, Dumpf, Hall und Glaettung stehen am Player (`EarshotProximityVoice`).
+Ein Settings- oder Voice-Profile-Asset ist kein Pflichtschritt. Nur anlegen,
+wenn ihr Kanal-Namen, Auto-Connect oder eigene Modifier-Assets braucht.
+Nicht das alte `EarshotSettings` wiederverwenden.
 
-1. Im Project-Fenster Rechtsklick → `Create > Earshot Voice > Voice Profile`
-2. Speichern z.B. unter `Assets/EarshotVoice/DefaultVoiceProfile.asset`
-3. Rechtsklick → `Create > Earshot Voice > Settings`
-4. Speichern als **`Assets/Resources/EarshotVoiceSettings.asset`** (Name und
+1. Rechtsklick → `Create > Earshot Voice > Settings`
+2. Speichern als **`Assets/Resources/EarshotVoiceSettings.asset`** (Name und
    `Resources/`-Ordner muessen so heissen)
-5. Im Settings-Asset das Voice Profile zuweisen
+3. Voice Profile nur zuweisen, wenn ihr eigene Module als Assets pflegt
 
 ### 8.3 Player-Prefab
 
@@ -236,10 +236,13 @@ Auf **jeden** spielbaren Charakter (lokal und remote), Root oder Kopf:
 
 `Add Component` → **Earshot Voice / Proximity Voice**
 
-Mehr muss am Prefab nicht stehen. Voice Anchor leer lassen, ausser der Mund
-sitzt an einem Kind, das nicht `Head`/`Camera` heisst — dann das Kopf-Transform
-reinziehen. Die Komponente muss auf demselben Objekt (oder einem Kind) sitzen
-wie euer `NetworkObject` / PhotonView.
+Im Inspector: Distanz, Waende, Tueren, Hall, Uebergaenge. Am Prefab einstellen
+(gilt fuer dich lokal, sobald du der lokale Spieler bist).
+
+Voice Anchor leer lassen, ausser der Mund sitzt an einem Kind, das nicht
+`Head`/`Camera` heisst — dann das Kopf-Transform reinziehen. Die Komponente
+muss auf demselben Objekt (oder einem Kind) sitzen wie euer `NetworkObject` /
+PhotonView.
 
 Kein `ConnectAsync`, kein `Bind`, kein zweites Skript.
 

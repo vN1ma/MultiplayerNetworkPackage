@@ -72,6 +72,11 @@ namespace Earshot.Voice
 
         public bool Enabled => enabled;
 
+        public void SetEnabled(bool value)
+        {
+            enabled = value;
+        }
+
         public abstract int Order { get; }
 
         public abstract void Apply(in VoiceContext context, ref VoiceSample sample);

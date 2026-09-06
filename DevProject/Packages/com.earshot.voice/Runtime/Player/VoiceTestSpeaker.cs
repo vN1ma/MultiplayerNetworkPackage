@@ -16,6 +16,7 @@ namespace Earshot.Voice
     /// </para>
     /// </summary>
     [AddComponentMenu("Earshot Voice/Voice Test Speaker")]
+    [RequireComponent(typeof(VoiceSourceColor))]
     public class VoiceTestSpeaker : MonoBehaviour
     {
         [SerializeField]

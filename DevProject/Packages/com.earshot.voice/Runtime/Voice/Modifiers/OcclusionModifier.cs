@@ -30,6 +30,15 @@ namespace Earshot.Voice.Modifiers
 
         public override int Order => VoiceModifierOrder.Occlusion;
 
+        public void Configure(VoiceHearingTuning tuning)
+        {
+            if (tuning == null) return;
+            SetEnabled(tuning.enableWallMuffle);
+            occludedVolume = tuning.occludedVolume;
+            occludedCutoffHz = tuning.occludedCutoffHz;
+            occludedReverb = tuning.occludedReverb;
+        }
+
         public override void Apply(in VoiceContext context, ref VoiceSample sample)
         {
             if (context.UsedGraph) return;

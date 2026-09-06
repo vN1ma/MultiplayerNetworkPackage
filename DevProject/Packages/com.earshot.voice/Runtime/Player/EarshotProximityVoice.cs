@@ -12,6 +12,11 @@ namespace Earshot.Voice
     [DisallowMultipleComponent]
     public class EarshotProximityVoice : MonoBehaviour, IProximityVoicePlayer
     {
+        [Header("Hoeren")]
+        [SerializeField]
+        [Tooltip("So klingen die anderen fuer dich. Wirkt nur am lokalen Spieler.")]
+        private VoiceHearingTuning hearing = new VoiceHearingTuning();
+
         [Header("Zero-Config (Standard)")]
         [SerializeField]
         [Tooltip("Fallback, wenn kein Netzwerk-Objekt am Avatar haengt. Mit Netcode/Mirror/Photon setzt die Komponente das selbst.")]
@@ -49,6 +54,7 @@ namespace Earshot.Voice
         public string PlayerId => playerId;
         public bool HasIdentity => !string.IsNullOrEmpty(playerId);
         public string DisplayName => string.IsNullOrWhiteSpace(displayName) ? name : displayName;
+        public VoiceHearingTuning Hearing => hearing;
 
         /// <summary>
         /// Advanced: Identitaet fest setzen. Im Standardweg unnoetig.
@@ -76,6 +82,14 @@ namespace Earshot.Voice
             joinVoiceChannel = value;
         }
 
+        /// <summary>Schreibt die Inspector-Hoerregler ins laufende Profil.</summary>
+        public void PushHearingTuning()
+        {
+            if (hearing == null) hearing = new VoiceHearingTuning();
+            hearing.Clamp();
+            EarshotVoiceSettings.Instance.ApplyHearingTuning(hearing);
+        }
+
         private void Reset()
         {
             EnsureVoiceAnchor();
@@ -84,6 +98,15 @@ namespace Earshot.Voice
         private void OnValidate()
         {
             EnsureVoiceAnchor();
+            if (hearing == null) hearing = new VoiceHearingTuning();
+            hearing.Clamp();
+            if (Application.isPlaying && isLocalPlayer) PushHearingTuning();
+        }
+
+        private void LateUpdate()
+        {
+            if (!Application.isPlaying || !isLocalPlayer) return;
+            PushHearingTuning();
         }
 
         private void OnEnable()
@@ -95,6 +118,8 @@ namespace Earshot.Voice
                 VoiceRoster.Register(this);
                 return;
             }
+
+            if (isLocalPlayer) PushHearingTuning();
 
             runId++;
             _ = RunAsync(runId);

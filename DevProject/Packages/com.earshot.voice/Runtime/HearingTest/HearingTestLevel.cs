@@ -255,6 +255,7 @@ namespace Earshot.Voice
         {
             var go = Box(name, position, new Vector3(0.45f, 0.7f, 0.45f), speakerMat, transform);
             go.SetActive(false);
+            go.AddComponent<VoiceSourceColor>();
             var speaker = go.AddComponent<VoiceTestSpeaker>();
             speaker.SetSpeakerId(id);
             go.SetActive(true);

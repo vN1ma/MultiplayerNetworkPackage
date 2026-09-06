@@ -15,6 +15,10 @@ namespace Earshot.Voice
     public class VoiceProfile : ScriptableObject
     {
         [Header("Reichweite")]
+        [SerializeField, Min(0f)]
+        [Tooltip("Bis hierher volle Lautstaerke.")]
+        private float nearDistance = 1.5f;
+
         [SerializeField, Min(1f)]
         [Tooltip("Ab dieser Entfernung in Metern ist ein Sprecher gar nicht mehr zu hoeren.")]
         private float maxHearingDistance = 25f;
@@ -35,10 +39,26 @@ namespace Earshot.Voice
         [Tooltip("Auf welchen Layern die VoiceZone-Trigger liegen.")]
         private LayerMask zoneLayers = ~0;
 
+        [SerializeField, Range(0.5f, 4f)]
+        [Tooltip("Nach so vielen massiven Waenden gilt der Weg als voll blockiert.")]
+        private float wallsUntilFullMuffle = 1f;
+
         [Header("Raumklang")]
         [SerializeField]
         [Tooltip("Hall kostet Rechenzeit fuer jeden Sprecher einzeln. Ausschalten, wenn das Projekt keine Raeume mit Hall verwendet.")]
         private bool enableReverb = true;
+
+        [SerializeField, Range(0f, 1f)]
+        private float spatialBlend = 1f;
+
+        [SerializeField, Range(0f, 1f)]
+        private float farSpatialBlend = 1f;
+
+        [SerializeField, Range(0f, 1f)]
+        private float maxReverbMix = 1f;
+
+        [SerializeField, Range(80f, 2000f)]
+        private float minLowPassHz = 80f;
 
         [Header("Berechnung")]
         [SerializeField, Range(4f, 60f)]
@@ -46,8 +66,12 @@ namespace Earshot.Voice
         private float evaluationsPerSecond = 30f;
 
         [SerializeField, Range(0.01f, 1f)]
-        [Tooltip("Zeit in Sekunden, in der die Haelfte einer Klangaenderung erreicht ist. Kleiner = schneller. Unter 0.03 beginnt es zu knacken.")]
+        [Tooltip("Zeit in Sekunden, in der die Haelfte einer Lautstaerke-Aenderung erreicht ist.")]
         private float smoothingHalfLife = 0.04f;
+
+        [SerializeField, Range(0.01f, 1f)]
+        [Tooltip("Zeit in Sekunden, in der die Haelfte einer Filter-Aenderung (Dumpf/Hall) erreicht ist.")]
+        private float filterSmoothingHalfLife = 0.06f;
 
         [Header("Module")]
         [SerializeField]
@@ -57,13 +81,20 @@ namespace Earshot.Voice
         private readonly List<IVoiceModifier> sorted = new List<IVoiceModifier>();
         private bool sortedDirty = true;
 
+        public float NearDistance => nearDistance;
         public float MaxHearingDistance => maxHearingDistance;
         public AnimationCurve DistanceFalloff => distanceFalloff;
         public LayerMask OcclusionLayers => occlusionLayers;
         public LayerMask ZoneLayers => zoneLayers;
         public bool EnableReverb => enableReverb;
+        public float WallsUntilFullMuffle => wallsUntilFullMuffle;
+        public float SpatialBlend => spatialBlend;
+        public float FarSpatialBlend => farSpatialBlend;
+        public float MaxReverbMix => maxReverbMix;
+        public float MinLowPassHz => minLowPassHz;
         public float EvaluationInterval => 1f / Mathf.Max(1f, evaluationsPerSecond);
         public float SmoothingHalfLife => smoothingHalfLife;
+        public float FilterSmoothingHalfLife => filterSmoothingHalfLife;
 
         /// <summary>
         /// Die aktiven Module, aufsteigend nach <see cref="IVoiceModifier.Order"/>.
@@ -102,7 +133,9 @@ namespace Earshot.Voice
         public float EvaluateDistanceFalloff(float distance)
         {
             if (maxHearingDistance <= 0f) return 0f;
-            float normalized = Mathf.Clamp01(distance / maxHearingDistance);
+            if (distance <= nearDistance) return 1f;
+            float span = Mathf.Max(0.01f, maxHearingDistance - nearDistance);
+            float normalized = Mathf.Clamp01((distance - nearDistance) / span);
             return Mathf.Clamp01(distanceFalloff.Evaluate(normalized));
         }
 
@@ -112,8 +145,54 @@ namespace Earshot.Voice
         /// </summary>
         public float GetSmoothingFactor(float deltaTime)
         {
-            if (smoothingHalfLife <= 0f) return 1f;
-            return 1f - Mathf.Exp(-deltaTime * 0.6931472f / smoothingHalfLife);
+            return HalfLifeFactor(deltaTime, smoothingHalfLife);
+        }
+
+        public float GetFilterSmoothingFactor(float deltaTime)
+        {
+            return HalfLifeFactor(deltaTime, filterSmoothingHalfLife);
+        }
+
+        public void ApplyTuning(VoiceHearingTuning tuning)
+        {
+            if (tuning == null) return;
+            tuning.Clamp();
+            nearDistance = tuning.nearDistance;
+            maxHearingDistance = tuning.maxHearingDistance;
+            if (tuning.distanceFalloff != null) distanceFalloff = tuning.distanceFalloff;
+            occlusionLayers = tuning.occlusionLayers;
+            zoneLayers = tuning.zoneLayers;
+            enableReverb = tuning.enableReverb;
+            wallsUntilFullMuffle = tuning.wallsUntilFullMuffle;
+            spatialBlend = tuning.spatialBlend;
+            farSpatialBlend = tuning.farSpatialBlend;
+            maxReverbMix = tuning.maxReverbMix;
+            minLowPassHz = tuning.minLowPassHz;
+            evaluationsPerSecond = tuning.evaluationsPerSecond;
+            smoothingHalfLife = tuning.volumeSmoothingHalfLife;
+            filterSmoothingHalfLife = tuning.filterSmoothingHalfLife;
+        }
+
+        /// <summary>
+        /// Raeumlichkeit und harte Grenzen nach der Modifier-Kette.
+        /// </summary>
+        public void ApplyHearingLimits(float distance, ref VoiceSample sample)
+        {
+            float t = 0f;
+            if (maxHearingDistance > nearDistance && distance > nearDistance)
+            {
+                t = Mathf.Clamp01((distance - nearDistance) / (maxHearingDistance - nearDistance));
+            }
+
+            sample.SpatialBlend = Mathf.Lerp(spatialBlend, farSpatialBlend, t);
+            sample.ReverbMix = Mathf.Min(sample.ReverbMix, maxReverbMix);
+            if (sample.LowPassHz < minLowPassHz) sample.LowPassHz = minLowPassHz;
+        }
+
+        private static float HalfLifeFactor(float deltaTime, float halfLife)
+        {
+            if (halfLife <= 0f) return 1f;
+            return 1f - Mathf.Exp(-deltaTime * 0.6931472f / halfLife);
         }
 
         private void RebuildSorted()

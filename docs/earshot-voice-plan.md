@@ -38,6 +38,7 @@ Ordner-Rollen ab jetzt: Dieses Repo **ist** das Voice-DevProject. Neuer Voice-Co
 - [x] Test-Werkzeuge übernommen: `VoiceTestSpeaker`, `VoiceSessionRecorder`
 - [x] Generisches Register: `VoiceRoster`
 - [x] `EarshotProximityVoice` (Zero-Config + Advanced/`Bind`)
+- [x] Hoerregler (Distanz, Dumpf, Hall, Glaettung) direkt am Player, kein Pflicht-Asset
 - [x] Bug 1 (2-Sekunden-Delay) und Bug 2 (Muffle/Reverb/Distanz) aus dem Export-Stand übernommen
 - [x] ~~NGO-Adapter `NetcodeVoicePlayer` im alten Paket~~ — **entfallen** (Nutzer entfernt `com.earshot.coop` selbst, siehe `docs/altes-earshot-entfernen.md`)
 - [x] Tests: EditMode-Tests für das generische Register ohne Netzwerk

@@ -26,6 +26,14 @@ namespace Earshot.Voice.Modifiers
 
         public override int Order => VoiceModifierOrder.Zone;
 
+        public void Configure(VoiceHearingTuning tuning)
+        {
+            if (tuning == null) return;
+            SetEnabled(tuning.enableZones);
+            intensity = tuning.zoneIntensity;
+            crossZoneCutoffHz = tuning.crossZoneCutoffHz;
+        }
+
         public override void Apply(in VoiceContext context, ref VoiceSample sample)
         {
             if (intensity <= 0f) return;

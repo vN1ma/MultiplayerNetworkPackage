@@ -10,6 +10,14 @@ Neueste Einträge oben. Format (siehe `.clinerules/01-workflow.md`):
 ```
 
 
+## [2026-09-06] – Klangfarbe pro Quelle
+- `Voice Source Color` an jeden Testlautsprecher, Player oder jede AudioSource. Dumpf, Hall, blechern und Lautstaerke gelten nur fuer diese Quelle, zusaetzlich zu Distanz und Waenden.
+- Betroffene Dateien: `VoiceSourceColor.cs`, `VoiceRuntime.cs`, `VoiceTestSpeaker.cs`
+
+## [2026-09-06] – Hoerregler am Player-Prefab
+- Distanz, Dumpf, Hall, Tuer-Cutoff und Glaettung stehen am `EarshotProximityVoice`, nicht in einem Pflicht-Asset. Lautstaerke und Filter koennen unterschiedlich weich nachziehen.
+- Betroffene Dateien: `EarshotProximityVoice.cs`, `VoiceHearingTuning.cs`, `VoiceProfile.cs`, `Modifiers/`, `Editor/EarshotProximityVoiceEditor.cs`
+
 ## [2026-09-06] – Graph-Crash und pinke Hoertest-Materialien
 - Dijkstra hat unverbundene Raeume als Weg gewertet und in Reconstruct gekracht. Unerreichbare Knoten liefern jetzt false.
 - Hoertest faerbt das projekt-eigene Default-Material (URP/HDRP), statt Built-in Standard — das war das Pink.

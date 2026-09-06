@@ -228,11 +228,20 @@ namespace Earshot.Voice
             KeepVivoxStreamAlive();
 
             float dt = Time.unscaledDeltaTime;
-            float t = profile != null
-                ? profile.GetSmoothingFactor(dt)
-                : 1f - Mathf.Exp(-dt * 0.6931472f / FallbackSmoothingHalfLife);
+            float volumeT;
+            float filterT;
+            if (profile != null)
+            {
+                volumeT = profile.GetSmoothingFactor(dt);
+                filterT = profile.GetFilterSmoothingFactor(dt);
+            }
+            else
+            {
+                volumeT = 1f - Mathf.Exp(-dt * 0.6931472f / FallbackSmoothingHalfLife);
+                filterT = volumeT;
+            }
 
-            current.MoveTowards(target, t);
+            current.MoveTowards(target, volumeT, filterT);
             Apply();
         }
 

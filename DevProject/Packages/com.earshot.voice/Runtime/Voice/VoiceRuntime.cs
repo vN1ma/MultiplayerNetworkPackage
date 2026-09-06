@@ -296,6 +296,18 @@ namespace Earshot.Voice
                     delta,
                     out var context);
 
+                var sourceColor = VoiceSourceColor.Find(emitter.Anchor);
+                if (sourceColor != null)
+                {
+                    sourceColor.Apply(ref sample);
+                    if (profile != null)
+                    {
+                        profile.ApplyHearingLimits(context.HearingDistance, ref sample);
+                    }
+
+                    sample.Clamp();
+                }
+
                 emitter.LastContext = context;
                 emitter.SetTarget(in sample);
             }

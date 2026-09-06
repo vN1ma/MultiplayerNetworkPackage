@@ -24,7 +24,19 @@ namespace Earshot.Voice.Modifiers
         [Tooltip("Tiefpass an der Hoergrenze, wenn Luftabsorption voll wirkt.")]
         private float distantCutoffHz = 4000f;
 
+        [SerializeField, Range(10f, 2000f)]
+        [Tooltip("Hochpass in der Ferne. 10 = aus.")]
+        private float distantHighPassHz = 10f;
+
         public override int Order => VoiceModifierOrder.Distance;
+
+        public void Configure(VoiceHearingTuning tuning)
+        {
+            if (tuning == null) return;
+            airAbsorption = tuning.airAbsorption;
+            distantCutoffHz = tuning.distantCutoffHz;
+            distantHighPassHz = tuning.distantHighPassHz;
+        }
 
         public override void Apply(in VoiceContext context, ref VoiceSample sample)
         {
@@ -33,11 +45,21 @@ namespace Earshot.Voice.Modifiers
             float range = context.HearingDistance > 0f ? context.HearingDistance : context.Distance;
             sample.Volume *= context.Profile.EvaluateDistanceFalloff(range);
 
-            if (airAbsorption <= 0f) return;
+            float t = context.Profile.MaxHearingDistance > 0f
+                ? Mathf.Clamp01(range / context.Profile.MaxHearingDistance)
+                : 1f;
 
-            float t = Mathf.Clamp01(range / context.Profile.MaxHearingDistance);
-            float cutoff = Mathf.Lerp(VoiceSample.NoLowPass, distantCutoffHz, t * airAbsorption);
-            sample.LowPassHz = Mathf.Min(sample.LowPassHz, cutoff);
+            if (airAbsorption > 0f)
+            {
+                float cutoff = Mathf.Lerp(VoiceSample.NoLowPass, distantCutoffHz, t * airAbsorption);
+                sample.LowPassHz = Mathf.Min(sample.LowPassHz, cutoff);
+            }
+
+            if (distantHighPassHz > VoiceSample.NoHighPass)
+            {
+                float high = Mathf.Lerp(VoiceSample.NoHighPass, distantHighPassHz, t);
+                sample.HighPassHz = Mathf.Max(sample.HighPassHz, high);
+            }
         }
     }
 }

@@ -22,3 +22,5 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 - Raum-Portal-Graph: Dijkstra durch `VoiceZone`/`VoicePortal`, `GraphModifier`
 - Treppen-Portale, `ApparentDirection`, Offset-Faecher, Authoring-Fenster, Graph-EditMode-Tests
 - Hoertest-Szene: geschlossener Flur, Tuer, Treppe, Ton mit E, Tuer mit F
+- Hoerregler direkt am Player (`EarshotProximityVoice`): Distanz, Luft, Waende, Tueren, Graph, Hall, getrennte Glaettung
+- `Voice Source Color` pro Quelle: Dumpf, Hall, blechern, Presets (Testlautsprecher, Player, AudioSource)

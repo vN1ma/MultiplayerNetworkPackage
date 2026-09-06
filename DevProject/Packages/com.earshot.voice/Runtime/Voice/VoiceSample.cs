@@ -77,12 +77,22 @@ namespace Earshot.Voice
         /// </summary>
         public void MoveTowards(in VoiceSample target, float t)
         {
-            t = Mathf.Clamp01(t);
-            Volume = Mathf.Lerp(Volume, target.Volume, t);
-            ReverbMix = Mathf.Lerp(ReverbMix, target.ReverbMix, t);
-            SpatialBlend = Mathf.Lerp(SpatialBlend, target.SpatialBlend, t);
-            LowPassHz = LerpFrequency(LowPassHz, target.LowPassHz, t);
-            HighPassHz = LerpFrequency(HighPassHz, target.HighPassHz, t);
+            MoveTowards(target, t, t);
+        }
+
+        /// <summary>
+        /// Wie <see cref="MoveTowards(in VoiceSample, float)"/>, aber Lautstaerke
+        /// und Filter (Dumpf/Hall) koennen unterschiedlich schnell nachziehen.
+        /// </summary>
+        public void MoveTowards(in VoiceSample target, float volumeT, float filterT)
+        {
+            volumeT = Mathf.Clamp01(volumeT);
+            filterT = Mathf.Clamp01(filterT);
+            Volume = Mathf.Lerp(Volume, target.Volume, volumeT);
+            ReverbMix = Mathf.Lerp(ReverbMix, target.ReverbMix, filterT);
+            SpatialBlend = Mathf.Lerp(SpatialBlend, target.SpatialBlend, filterT);
+            LowPassHz = LerpFrequency(LowPassHz, target.LowPassHz, filterT);
+            HighPassHz = LerpFrequency(HighPassHz, target.HighPassHz, filterT);
             Muted = target.Muted;
         }
 

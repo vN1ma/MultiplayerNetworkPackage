@@ -61,6 +61,41 @@ namespace Earshot.Voice
             defaultsInjected = false;
         }
 
+        /// <summary>
+        /// Schreibt die Player-Hoerregler in das laufende Profil und die Standard-Module.
+        /// </summary>
+        public void ApplyHearingTuning(VoiceHearingTuning tuning)
+        {
+            if (tuning == null) return;
+            EnsureProfile();
+            voiceProfile.ApplyTuning(tuning);
+
+            var modifiers = voiceProfile.SortedModifiers;
+            for (int i = 0; i < modifiers.Count; i++)
+            {
+                switch (modifiers[i])
+                {
+                    case DistanceFalloffModifier distance:
+                        distance.Configure(tuning);
+                        break;
+                    case OcclusionModifier occlusion:
+                        occlusion.Configure(tuning);
+                        break;
+                    case PortalModifier portal:
+                        portal.Configure(tuning);
+                        break;
+                    case GraphModifier graph:
+                        graph.Configure(tuning);
+                        break;
+                    case ZoneModifier zone:
+                        zone.Configure(tuning);
+                        break;
+                }
+            }
+
+            EarshotVoice.HeardVoiceVolume = tuning.heardVolume;
+        }
+
         private static EarshotVoiceSettings cached;
         private static bool warnedAboutMissingAsset;
         private bool defaultsInjected;
