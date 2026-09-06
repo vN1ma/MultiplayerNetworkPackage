@@ -37,3 +37,19 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 - `IVoiceBackend`: `VoicePathKind` / `VoiceSpeakerKey`; optionales `IVoiceRadioBackend`
 - Beim Walkie-Senden nur Funkkanal (`TransmissionMode.Single`), nicht parallel zum Proximity-Mund
+
+### Behoben
+
+- Sidetone klang roboterhaft/zu schnell: Mikrofon wurde fest mit 16 kHz aufgenommen,
+  aber mit der Ausgabe-Rate (meist 48 kHz) abgespielt — jetzt nimmt `WalkieSidetoneCapture`
+  mit `AudioSettings.outputSampleRate` auf, kein Pitch-Fehler mehr
+- Periodisches Klacken am Empfangs-Walkie: `WalkieDeviceOutput` brach die Wiedergabe fruerher
+  ab, wenn der Puffer kurz leer war (Gate zu) — Delay-Ring laeuft jetzt immer durch
+  (Stille wird eingemischt statt die Wiedergabe abzubrechen)
+- Lautstaerke stieg beim Weggehen vom Walkie faelschlich an (Anti-Feedback-Nahdaempfung
+  wirkte gegenteilig) — jetzt einfache monotone Distanzdaempfung: naeher = lauter, weiter = leiser
+- Bus/Ring vereinheitlicht auf Mono-Frames (`WalkieRadioTapFeed` mischt Vivox-Tap runter,
+  `WalkieSidetoneCapture` mischt Mehrkanal-Mikrofon runter) statt Rohdaten unabhaengig
+  von Kanalzahl weiterzureichen
+- Sidetone-Gate ist jetzt ein weich nachziehender Gain mit Sustain-Schwelle (~90 ms), damit
+  kurze Transienten wie Schritt-Klicks seltener durchrutschen, statt hart an/aus zu schalten

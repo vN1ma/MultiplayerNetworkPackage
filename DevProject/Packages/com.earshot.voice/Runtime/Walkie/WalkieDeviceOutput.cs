@@ -7,6 +7,9 @@ namespace Earshot.Voice
     /// <para>
     /// Wichtig: <see cref="OnAudioFilterRead"/> laeuft auf dem Audio-Thread —
     /// dort kein <c>AudioSettings</c>, keine Allokationen, keine Unity-API.
+    /// Der Delay-Ring arbeitet in MONO-Frames (siehe <see cref="WalkieRadioBus"/>);
+    /// am Ende wird jeder Mono-Frame auf alle Ausgabe-Kanaele verteilt. So bleibt
+    /// die Zeitbasis unabhaengig von Unity's Kanalzahl korrekt (kein Chipmunk-Sound).
     /// </para>
     /// </summary>
     [AddComponentMenu("")]
@@ -14,6 +17,7 @@ namespace Earshot.Voice
     internal sealed class WalkieDeviceOutput : MonoBehaviour
     {
         private const int MaxDelaySeconds = 2;
+        private const float VolumeSmoothPerSecond = 6f;
 
         private EarshotWalkieTalkie walkie;
         private AudioSource source;
@@ -21,6 +25,8 @@ namespace Earshot.Voice
         private AudioHighPassFilter highPass;
 
         private readonly WalkieAudioRing inbox = new WalkieAudioRing(48000);
+
+        // Delay-Ring in MONO-Frames (nicht mit Kanalzahl multipliziert).
         private float[] delayRing;
         private int delayWrite;
         private bool delayPrimed;
@@ -29,18 +35,18 @@ namespace Earshot.Voice
         private int sampleRate = 48000;
         private string lastStreamId;
 
-        // Audio-Thread setzt nur Flags; Main-Thread baut den Delay-Puffer.
         private volatile int pendingChannels;
         private volatile bool delayReady;
 
-        private readonly float[] pullBuffer = new float[4096];
+        private float[] monoPullBuffer = new float[2048];
+        private float smoothedVolume;
 
         internal void Bind(EarshotWalkieTalkie owner)
         {
             walkie = owner;
             CacheSampleRate();
             EnsureAudio();
-            EnsureDelayCapacity(outputChannels);
+            EnsureDelayCapacity();
             ApplyEq();
             WalkieRadioBus.Register(this);
         }
@@ -48,7 +54,7 @@ namespace Earshot.Voice
         private void OnEnable()
         {
             CacheSampleRate();
-            EnsureDelayCapacity(outputChannels);
+            EnsureDelayCapacity();
             WalkieRadioBus.Register(this);
         }
 
@@ -132,12 +138,12 @@ namespace Earshot.Voice
             source.loop = true;
             source.spatialBlend = 1f;
             source.dopplerLevel = 0f;
-            // Entfernung nur ueber unser Volume — Unity-Rolloff wuerde sonst doppelt/komisch daempfen.
+            // Entfernung nur ueber unser Volume — Unity-Rolloff wuerde sonst doppelt daempfen.
             source.rolloffMode = AudioRolloffMode.Custom;
             source.SetCustomCurve(AudioSourceCurveType.CustomRolloff, AnimationCurve.Constant(0f, 1f, 1f));
             source.minDistance = 0.4f;
             source.maxDistance = 50f;
-            source.mute = true;
+            source.mute = false;
             source.volume = 0f;
 
             if (lowPass == null)
@@ -152,10 +158,10 @@ namespace Earshot.Voice
                 if (highPass == null) highPass = gameObject.AddComponent<AudioHighPassFilter>();
             }
 
-            // EQ erst aktiv, wenn wirklich Funkton laeuft — sonst faerbt der HighPass
-            // Stille/Rauschen und stoert die Szene.
-            lowPass.enabled = false;
-            highPass.enabled = false;
+            // Filter bleiben immer aktiv — Ein/Ausschalten der Komponente selbst
+            // verursacht Klicks. Stille kommt allein ueber Lautstaerke/Samples.
+            lowPass.enabled = true;
+            highPass.enabled = true;
 
             if (source.clip == null)
             {
@@ -167,17 +173,15 @@ namespace Earshot.Voice
             if (!source.isPlaying) source.Play();
         }
 
-        private void EnsureDelayCapacity(int channels)
+        private void EnsureDelayCapacity()
         {
-            channels = Mathf.Max(1, channels);
-            int needed = Mathf.Max(channels, MaxDelaySeconds * sampleRate * channels);
-            if (delayRing != null && delayRing.Length >= needed && outputChannels == channels)
+            int needed = Mathf.Max(1, MaxDelaySeconds * sampleRate);
+            if (delayRing != null && delayRing.Length >= needed)
             {
                 delayReady = true;
                 return;
             }
 
-            outputChannels = channels;
             delayRing = new float[needed];
             delayWrite = 0;
             delayPrimed = false;
@@ -191,8 +195,12 @@ namespace Earshot.Voice
             CacheSampleRate();
             EnsureAudio();
 
-            int want = pendingChannels > 0 ? pendingChannels : outputChannels;
-            EnsureDelayCapacity(want);
+            if (pendingChannels > 0 && pendingChannels != outputChannels)
+            {
+                outputChannels = pendingChannels;
+            }
+
+            EnsureDelayCapacity();
             ApplyEq();
 
             Transform anchor = walkie.AudioAnchor;
@@ -202,29 +210,21 @@ namespace Earshot.Voice
             delaySeconds = walkie.TransmissionDelaySeconds;
 
             bool active = ShouldOutput();
-            bool sidetone = IsSidetoneMode();
-            float volume = 0f;
+            float targetVolume = 0f;
             if (active)
             {
+                bool sidetone = IsSidetoneMode();
                 float baseVol = sidetone
                     ? WalkieTalkieRegistry.ActiveSidetoneWorldVolume
                     : walkie.RadioVolume;
-                volume = baseVol * DistanceFalloff() * EarshotVoice.HeardVoiceVolume;
-
-                // Nah am Lautsprecher + offenes Mikro = Feedback. Sidetone in der Naehe leiser.
-                if (sidetone && TryListenerPosition(out Vector3 listener))
-                {
-                    float d = Vector3.Distance(listener, transform.position);
-                    float nearDuck = Mathf.Clamp01(d / 1.8f);
-                    volume *= Mathf.Lerp(0.25f, 1f, nearDuck);
-                }
+                targetVolume = Mathf.Clamp01(baseVol * DistanceFalloff() * EarshotVoice.HeardVoiceVolume);
             }
 
-            bool audible = volume > 0.0001f;
-            source.volume = Mathf.Clamp01(volume);
-            source.mute = !audible;
-            if (lowPass != null) lowPass.enabled = audible;
-            if (highPass != null) highPass.enabled = audible;
+            smoothedVolume = Mathf.MoveTowards(
+                smoothedVolume,
+                targetVolume,
+                Time.unscaledDeltaTime * VolumeSmoothPerSecond);
+            source.volume = smoothedVolume;
         }
 
         private bool IsSidetoneMode()
@@ -299,44 +299,33 @@ namespace Earshot.Voice
                     return;
                 }
 
-                if (walkie == null || !walkie.PoweredOn || walkie.IsTransmitting)
+                int frames = data.Length / ch;
+                if (frames <= 0)
                 {
                     Silence(data);
                     return;
                 }
 
-                if (inbox.Available < outputChannels)
-                {
-                    // Kein Nachschub: Delay nicht mit Nullen fuettern (Klicken/Tacken).
-                    Silence(data);
-                    return;
-                }
+                if (monoPullBuffer.Length < frames) monoPullBuffer = new float[frames];
 
-                int n = data.Length < pullBuffer.Length ? data.Length : pullBuffer.Length;
-                inbox.Read(pullBuffer, 0, n);
+                bool play = walkie != null && walkie.PoweredOn && !walkie.IsTransmitting;
+                int got = play ? inbox.Read(monoPullBuffer, 0, frames) : 0;
+                for (int i = got; i < frames; i++) monoPullBuffer[i] = 0f;
 
                 float delaySec = delaySeconds;
                 if (delaySec < 0f) delaySec = 0f;
                 if (delaySec > 1.5f) delaySec = 1.5f;
 
-                if (delaySec <= 0.0001f)
-                {
-                    for (int i = 0; i < data.Length; i++)
-                    {
-                        data[i] = i < n ? pullBuffer[i] : 0f;
-                    }
-
-                    return;
-                }
-
                 int rate = sampleRate > 0 ? sampleRate : 48000;
-                int delaySamples = Mathf.CeilToInt(delaySec * rate) * outputChannels;
-                if (delaySamples < outputChannels) delaySamples = outputChannels;
+                int delaySamples = Mathf.CeilToInt(delaySec * rate);
+                if (delaySamples < 1) delaySamples = 1;
                 if (delaySamples > delayRing.Length) delaySamples = delayRing.Length;
 
-                for (int i = 0; i < data.Length; i++)
+                // Puffer kontinuierlich weiterschieben — nie fruehzeitig abbrechen,
+                // sonst entsteht am naechsten Aufruf ein hoerbarer Sprung (Klacken).
+                for (int f = 0; f < frames; f++)
                 {
-                    float incoming = i < n ? pullBuffer[i] : 0f;
+                    float incoming = monoPullBuffer[f];
                     int readIndex = delayWrite - delaySamples;
                     if (readIndex < 0) readIndex += delayRing.Length;
 
@@ -349,7 +338,8 @@ namespace Earshot.Voice
                         delayPrimed = true;
                     }
 
-                    data[i] = outgoing;
+                    int baseIdx = f * ch;
+                    for (int c = 0; c < ch; c++) data[baseIdx + c] = outgoing;
                 }
             }
             catch
@@ -367,14 +357,7 @@ namespace Earshot.Voice
         {
             if (walkie == null) return null;
 
-            if (WalkieTalkieRegistry.LocalIsTransmitting &&
-                string.Equals(
-                    WalkieTalkieRegistry.LocalTransmitChannelId,
-                    walkie.ChannelId,
-                    System.StringComparison.OrdinalIgnoreCase))
-            {
-                return WalkieRadioBus.LocalSidetoneStreamId;
-            }
+            if (IsSidetoneMode()) return WalkieRadioBus.LocalSidetoneStreamId;
 
             if (WalkieTalkieRegistry.LocalIsTransmitting) return null;
 
