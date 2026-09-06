@@ -21,13 +21,49 @@ namespace Earshot
         /// als auch Vivox, weshalb sie der Schluessel ist, um eine Stimme dem richtigen
         /// Avatar zuzuordnen. Vor der Anmeldung leer.
         /// </summary>
-        public static string PlayerId =>
-            AuthenticationService.Instance != null && AuthenticationService.Instance.IsSignedIn
-                ? AuthenticationService.Instance.PlayerId
-                : string.Empty;
+        public static string PlayerId
+        {
+            get
+            {
+                try
+                {
+                    if (UnityServices.State != ServicesInitializationState.Initialized)
+                    {
+                        return string.Empty;
+                    }
 
-        public static bool IsSignedIn =>
-            AuthenticationService.Instance != null && AuthenticationService.Instance.IsSignedIn;
+                    return AuthenticationService.Instance != null &&
+                           AuthenticationService.Instance.IsSignedIn
+                        ? AuthenticationService.Instance.PlayerId
+                        : string.Empty;
+                }
+                catch (ServicesInitializationException)
+                {
+                    return string.Empty;
+                }
+            }
+        }
+
+        public static bool IsSignedIn
+        {
+            get
+            {
+                try
+                {
+                    if (UnityServices.State != ServicesInitializationState.Initialized)
+                    {
+                        return false;
+                    }
+
+                    return AuthenticationService.Instance != null &&
+                           AuthenticationService.Instance.IsSignedIn;
+                }
+                catch (ServicesInitializationException)
+                {
+                    return false;
+                }
+            }
+        }
 
         /// <summary>
         /// Sorgt dafuer, dass die Dienste laufen und der Spieler angemeldet ist.
@@ -86,34 +122,80 @@ namespace Earshot
         }
 
         /// <summary>
-        /// Gibt jeder Editor-Instanz eine eigene Anmelde-Identitaet.
+        /// Gibt dieser Instanz eine eigene Anmelde-Identitaet, falls noetig.
         /// <para>
-        /// Ohne das melden sich im Multiplayer Play Mode alle Instanzen mit demselben Konto
-        /// an, und die zuletzt gestartete wirft die vorherige aus der Sitzung. Der Multiplayer
-        /// Play Mode legt fuer jede virtuelle Instanz einen eigenen Projektordner an, weshalb
-        /// sich der Pfad zu den Projektdaten als stabiles Unterscheidungsmerkmal eignet -
-        /// ohne dass wir eine Abhaengigkeit auf das Play-Mode-Paket brauchen.
+        /// Zwei Kopien derselben EXE auf demselben PC teilen sich sonst denselben
+        /// zwischengespeicherten Login (gleicher Datenordner, gleiches Konto) - die zweite
+        /// wirft dann die erste aus der Sitzung, oder beide erscheinen fuer Vivox als
+        /// derselbe Sprecher. Ein <c>-profile NAME</c>-Kommandozeilenargument beim Start
+        /// loest das explizit, auch in einem fertigen Build: Verknuepfung einmal ohne
+        /// Zusatz starten (Spieler 1), eine zweite mit <c>-profile p2</c> am Ende des
+        /// "Ziel"-Felds (Spieler 2). Im Editor tritt ohne dieses Argument automatisch der
+        /// Multiplayer Play Mode-Fall ein: Jede virtuelle Instanz hat einen eigenen
+        /// Projektordner, dessen Pfad als stabiles Unterscheidungsmerkmal dient.
         /// </para>
         /// </summary>
         private static void ApplyInstanceProfile()
         {
+            string explicitProfile = ReadProfileArgument();
+            if (!string.IsNullOrEmpty(explicitProfile))
+            {
+                SwitchProfile(explicitProfile, "Kommandozeile -profile");
+                return;
+            }
+
             if (!Application.isEditor) return;
             if (!CoopSettings.Instance.UniqueProfilePerEditorInstance) return;
 
-            string profile = BuildProfileName(Application.dataPath);
+            SwitchProfile(BuildProfileName(Application.dataPath), "Editor-Instanz");
+        }
 
+        private static void SwitchProfile(string profile, string reason)
+        {
             try
             {
                 AuthenticationService.Instance.SwitchProfile(profile);
-                CoopLog.Info($"Anmeldeprofil dieser Editor-Instanz: {profile}");
+                CoopLog.Info($"Anmeldeprofil dieser Instanz ({reason}): {profile}");
             }
             catch (Exception ex)
             {
                 CoopLog.Warn(
                     $"Anmeldeprofil '{profile}' konnte nicht gesetzt werden ({ex.Message}). " +
-                    "Falls mehrere Editor-Instanzen gleichzeitig laufen, kann es sein, dass " +
+                    "Falls mehrere Instanzen gleichzeitig laufen, kann es sein, dass " +
                     "sie sich gegenseitig aus der Sitzung werfen.");
             }
+        }
+
+        /// <summary>
+        /// Liest <c>-profile NAME</c> aus den Startargumenten. Fuer den zweiten Fenster
+        /// beim Selbsttest auf einem PC gedacht - siehe <see cref="ApplyInstanceProfile"/>.
+        /// </summary>
+        private static string ReadProfileArgument()
+        {
+            string[] args = Environment.GetCommandLineArgs();
+            for (int i = 0; i < args.Length - 1; i++)
+            {
+                if (string.Equals(args[i], "-profile", StringComparison.OrdinalIgnoreCase))
+                {
+                    return SanitizeProfileName(args[i + 1]);
+                }
+            }
+
+            return null;
+        }
+
+        private static string SanitizeProfileName(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return null;
+
+            var sb = new StringBuilder(30);
+            for (int i = 0; i < raw.Length && sb.Length < 30; i++)
+            {
+                char c = raw[i];
+                if (char.IsLetterOrDigit(c) || c == '-' || c == '_') sb.Append(c);
+            }
+
+            return sb.Length > 0 ? sb.ToString() : null;
         }
 
         /// <summary>

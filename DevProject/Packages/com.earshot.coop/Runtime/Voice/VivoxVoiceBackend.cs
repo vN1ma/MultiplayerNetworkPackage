@@ -25,7 +25,7 @@ namespace Earshot.Voice
     /// Stimme fuer Unity ein Geraeusch wie jedes andere - mit allen Filtern, die dazugehoeren.
     /// </para>
     /// </summary>
-    public class VivoxVoiceBackend : IVoiceBackend
+    public class VivoxVoiceBackend : IVoiceBackend, IVoiceBackendRecovery
     {
         private readonly Dictionary<string, VivoxParticipant> participants =
             new Dictionary<string, VivoxParticipant>(StringComparer.OrdinalIgnoreCase);
@@ -223,6 +223,50 @@ namespace Earshot.Voice
             // Das Tap-GameObject raeumt Vivox selbst ab, sobald der Teilnehmer geht.
             // Ein eigener Destroy-Aufruf wuerde hier nur Schaden anrichten.
             SpeakerRemoved?.Invoke(participant.PlayerId);
+        }
+
+        /// <summary>Siehe <see cref="IVoiceBackendRecovery.IsSpeaking"/>.</summary>
+        bool IVoiceBackendRecovery.IsSpeaking(string playerId)
+        {
+            if (!participants.TryGetValue(playerId, out var participant) || participant == null)
+            {
+                return false;
+            }
+
+            return participant.SpeechDetected || participant.AudioEnergy > 0.02;
+        }
+
+        /// <summary>
+        /// Baut den Audio Tap eines Teilnehmers komplett neu auf. Das ist der einzige
+        /// Hebel, den wir von aussen haben, um Vivox' eigene, haengen gebliebene
+        /// Audio-Zustellung fuer genau diesen Teilnehmer zu erzwingen - ein erneutes
+        /// Setzen von Lautstaerke o.ae. reicht nicht, weil das Problem naeher an der
+        /// Netzwerk-/Decoder-Ebene von Vivox liegt, nicht an unserer Pipeline.
+        /// Siehe <see cref="IVoiceBackendRecovery.RecoverSpeaker"/>.
+        /// </summary>
+        void IVoiceBackendRecovery.RecoverSpeaker(string playerId)
+        {
+            if (!participants.TryGetValue(playerId, out var participant) || participant == null) return;
+
+            VoiceSessionLog.Alert(
+                $"SELBSTHEILUNG: Tap von {playerId} liefert kein echtes Signal mehr, " +
+                "obwohl Vivox 'redet gerade' meldet - kein Nachschub, der sich von selbst " +
+                "erholt. Tap wird neu aufgebaut.");
+
+            bool wasTracked = participants.Remove(playerId);
+
+            try
+            {
+                participant.DestroyVivoxParticipantTap();
+            }
+            catch (Exception ex)
+            {
+                CoopLog.Exception($"Alten Tap fuer {playerId} loeschen fehlgeschlagen", ex);
+            }
+
+            if (wasTracked) SpeakerRemoved?.Invoke(playerId);
+
+            TryCreateTap(participant);
         }
     }
 }

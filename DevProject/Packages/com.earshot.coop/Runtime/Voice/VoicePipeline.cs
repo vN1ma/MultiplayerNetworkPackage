@@ -175,7 +175,8 @@ namespace Earshot.Voice
                 // des Sprechers. Sonst ist jede Stimme sofort "hinter einer Mauer".
                 if (hitCollider is CharacterController ||
                     hitCollider.GetComponentInParent<CharacterController>() != null ||
-                    hitCollider.GetComponentInParent<CoopPlayer>() != null)
+                    hitCollider.GetComponentInParent<CoopPlayer>() != null ||
+                    hitCollider.GetComponentInParent<VoiceTransparent>() != null)
                 {
                     continue;
                 }

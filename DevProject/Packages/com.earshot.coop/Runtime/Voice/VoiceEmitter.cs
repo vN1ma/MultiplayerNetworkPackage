@@ -5,14 +5,11 @@ namespace Earshot.Voice
     /// <summary>
     /// Der Lautsprecher eines Sprechers in der Spielwelt.
     /// <para>
-    /// Diese Komponente sitzt auf dem GameObject, das Vivox fuer den Audio Tap angelegt
-    /// hat, und ist die einzige Stelle im Paket, die eine AudioSource tatsaechlich
-    /// anfasst. Die Pipeline liefert ein Ziel, hier wird weich dorthin geblendet.
-    /// </para>
-    /// <para>
-    /// Die Glaettung ist kein Feinschliff, sondern notwendig: Sprungartige Aenderungen an
-    /// Lautstaerke oder Filterfrequenz erzeugen ein deutlich hoerbares Knacken, und die
-    /// Pipeline laeuft bewusst nur etwa fuenfzehnmal pro Sekunde.
+    /// Genau eine AudioSource - der Vivox-Tap selbst. Das ist der von Vivox vorgesehene
+    /// Weg, raeumlichen Klang zu bekommen: die vom Tap gelieferte AudioSource an den
+    /// Avatar haengen und ganz normal ueber Unity spatialisieren. Kein zweiter,
+    /// kuenstlicher Lautsprecher, kein Ringpuffer, keine Ueberblendlogik - das waren
+    /// selbst die Fehlerquelle, nicht die Loesung.
     /// </para>
     /// </summary>
     [AddComponentMenu("")]
@@ -23,7 +20,17 @@ namespace Earshot.Voice
         private const float FallbackSmoothingHalfLife = 0.09f;
         private const float FallbackMaxDistance = 25f;
 
-        private AudioSource source;
+        /// <summary>
+        /// Ab diesem Pegel im rohen Tap-Signal gilt "es kommt gerade wirklich etwas an".
+        /// Nur fuer die Diagnose (Log), veraendert nie den Klang.
+        /// </summary>
+        private const float SignalPeak = 0.006f;
+
+        /// <summary>Wie lange nach dem letzten erkannten Signal der Tap noch als "lebt" gilt.</summary>
+        private const float SignalHoldSeconds = 0.6f;
+
+        private AudioSource tap;
+        private VoiceTapCapture capture;
         private AudioLowPassFilter lowPass;
         private AudioHighPassFilter highPass;
         private AudioReverbFilter reverb;
@@ -31,6 +38,10 @@ namespace Earshot.Voice
         private VoiceProfile profile;
         private VoiceSample current = VoiceSample.Default;
         private VoiceSample target = VoiceSample.Default;
+
+        private volatile bool sawSignalThisFrame;
+        private float lastSignalTime = -10f;
+        private bool debugLoop;
 
         /// <summary>Unity-Gaming-Services-ID des Sprechers.</summary>
         public string PlayerId { get; private set; }
@@ -47,68 +58,104 @@ namespace Earshot.Voice
         /// </summary>
         public VoiceContext LastContext { get; internal set; }
 
+        /// <summary>2D (kein Avatar bekannt) oder 3D (am Kopf des Sprechers), oder stumm.</summary>
+        public string PlaybackMode
+        {
+            get
+            {
+                // Nur wirklich stumm, wenn die Pipeline die Stimme abgeschaltet hat.
+                // Lautstaerke nahe 0 durch Entfernung ist kein Sterben - sonst schreien
+                // die Logs "AUDIO STIRBT", sobald jemand ein paar Meter weg steht.
+                if (current.Muted) return "stumm";
+                return current.SpatialBlend >= 0.5f ? "3D" : "2D";
+            }
+        }
+
+        /// <summary>Wahr, sobald die Stimme raeumlich am Kopf des Sprechers liegt.</summary>
+        public bool UsesHeadSpeaker => Anchor != null;
+
+        /// <summary>Ob im rohen Tap-Signal gerade wirklich Audiodaten ankommen (Diagnose).</summary>
+        public bool TapIsPlaying => Time.unscaledTime - lastSignalTime < SignalHoldSeconds;
+
+        /// <summary>
+        /// Ob das Vivox-Tap-Objekt selbst noch aktiv ist. Wenn nicht, laeuft
+        /// OnAudioFilterRead ueberhaupt nicht mehr - ein anderer Fehlerfall als
+        /// "Tap laeuft, liefert aber gerade kein Signal" (<see cref="TapIsPlaying"/>).
+        /// </summary>
+        public bool TapObjectActive => tap != null && tap.gameObject.activeInHierarchy;
+
+        /// <summary>
+        /// Der native Zustand der AudioSource selbst (<c>AudioSource.isPlaying</c>).
+        /// <para>
+        /// Vivox' eigener <c>VivoxAudioProcessor</c> pausiert diese AudioSource ganz
+        /// von sich aus, wenn ueber rund 400 ms (20 Zyklen zu je 20 ms) keine neuen
+        /// Netzwerk-Audiodaten fuer diesen Sprecher ankommen - unabhaengig von unserer
+        /// eigenen Pipeline. Wird dieser Wert false, waehrend <see cref="TapIsPlaying"/>
+        /// vorher "lebt" war, ist das der Beweis: nicht unser Code hat abgeschaltet,
+        /// sondern Vivox selbst hat den Nachschub verloren (Netzwerk-Aussetzer, Jitter,
+        /// oder - besonders im Multiplayer Play Mode mit zwei Editor-Instanzen auf einem
+        /// Rechner - schlicht zu wenig CPU-Zeit fuer den Audio-Thread).
+        /// </para>
+        /// </summary>
+        public bool TapAudioSourceIsPlaying => tap != null && tap.isPlaying;
+
         internal void Initialize(string playerId, AudioSource audioSource, VoiceProfile voiceProfile)
         {
             PlayerId = playerId;
-            source = audioSource;
+            tap = audioSource;
             profile = voiceProfile;
 
-            ConfigureSource();
-            AttachFilters();
+            ConfigureTap();
+            AttachFilters(gameObject);
+
+            // Nur zur Diagnose: liest die rohen Samples mit, ruehrt sie aber nicht an.
+            capture = gameObject.AddComponent<VoiceTapCapture>();
+            capture.Emitter = this;
 
             current = VoiceSample.Default;
+            current.Volume = 0.5f;
             target = current;
             Apply();
         }
 
-        private void ConfigureSource()
+        private void ConfigureTap()
         {
-            if (source == null) return;
+            if (tap == null) return;
 
-            source.playOnAwake = false;
-            source.loop = false;
-            source.spatialBlend = 1f;
-            source.volume = 0f;
-
-            // Unity soll nichts eigenmaechtig daempfen: Die gesamte Entfernungsabhaengigkeit
-            // stammt aus der Pipeline. Waeren beide aktiv, wirkte die Kurve doppelt und die
-            // im Profil eingestellte Hoerweite waere wirkungslos. Eine konstante Kurve auf
-            // 1 schaltet Unitys eigene Abschwaechung praktisch ab.
-            source.maxDistance = profile != null
+            tap.playOnAwake = false;
+            // Vivox schreibt die Stimme in einen rund 3-Sekunden-Clip und spielt den
+            // als Endlosschleife. loop=false laesst genau diesen Clip einmal durchlaufen
+            // und dann fuer immer verstummen - das war der "2 Sekunden und tot"-Fehler.
+            tap.loop = true;
+            tap.pitch = 1f;
+            tap.volume = 0.5f;
+            tap.dopplerLevel = 0f;
+            tap.spatialize = false;
+            tap.bypassReverbZones = true;
+            tap.minDistance = 0f;
+            tap.maxDistance = profile != null
                 ? Mathf.Max(1f, profile.MaxHearingDistance)
                 : FallbackMaxDistance;
-            source.minDistance = 0f;
-            source.SetCustomCurve(
-                AudioSourceCurveType.CustomRolloff,
-                AnimationCurve.Constant(0f, 1f, 1f));
-            source.rolloffMode = AudioRolloffMode.Custom;
 
-            // Sprache darf ihre Tonhoehe nicht veraendern, wenn jemand rennt.
-            source.dopplerLevel = 0f;
-
-            // Reverb Zones der Szene wuerden unkontrolliert mit unserem eigenen Hall
-            // konkurrieren. Raumklang kommt ausschliesslich aus den VoiceZones.
-            source.bypassReverbZones = true;
+            // Die Entfernungsdaempfung rechnet ausschliesslich die Pipeline. Unitys
+            // eigene Rolloff-Kurve wuerde sonst ein zweites Mal daempfen.
+            tap.SetCustomCurve(AudioSourceCurveType.CustomRolloff, AnimationCurve.Constant(0f, 1f, 1f));
+            tap.rolloffMode = AudioRolloffMode.Custom;
         }
 
-        private void AttachFilters()
+        private void AttachFilters(GameObject host)
         {
-            // Die Reihenfolge der Komponenten ist die Reihenfolge der Signalverarbeitung.
-            // Der Vivox-Tap liegt bereits auf dem GameObject, alles Folgende haengt sich
-            // korrekt dahinter.
-            lowPass = gameObject.AddComponent<AudioLowPassFilter>();
+            lowPass = host.AddComponent<AudioLowPassFilter>();
             lowPass.cutoffFrequency = VoiceSample.NoLowPass;
             lowPass.lowpassResonanceQ = 1f;
 
-            highPass = gameObject.AddComponent<AudioHighPassFilter>();
+            highPass = host.AddComponent<AudioHighPassFilter>();
             highPass.cutoffFrequency = VoiceSample.NoHighPass;
             highPass.highpassResonanceQ = 1f;
 
-            // Hall kostet spuerbar Rechenzeit pro Sprecher und ist nur sinnvoll, wenn das
-            // Projekt ueberhaupt Raeume definiert. Sonst bleibt der Filter weg.
             if (profile == null || !profile.EnableReverb) return;
 
-            reverb = gameObject.AddComponent<AudioReverbFilter>();
+            reverb = host.AddComponent<AudioReverbFilter>();
             reverb.reverbPreset = AudioReverbPreset.User;
             reverb.dryLevel = 0f;
             reverb.room = NoReverbRoomLevel;
@@ -134,20 +181,50 @@ namespace Earshot.Voice
         /// </summary>
         internal void PlayLoop(AudioClip clip)
         {
-            if (source == null || clip == null) return;
-            source.clip = clip;
-            source.loop = true;
-            source.Play();
+            debugLoop = true;
+            if (tap == null || clip == null) return;
+            tap.clip = clip;
+            tap.loop = true;
+            tap.Play();
+        }
+
+        /// <summary>
+        /// Liest nur mit, ob im rohen Tap-Signal ein Pegel ankommt. Aendert das Signal
+        /// selbst nicht - reine Diagnose fuer die Logs, damit man sieht, ob Vivox
+        /// ueberhaupt noch etwas liefert, unabhaengig davon, was die Pipeline daraus macht.
+        /// </summary>
+        internal void CaptureFromTap(float[] data, int channels)
+        {
+            if (debugLoop || data == null || data.Length == 0) return;
+
+            float peak = 0f;
+            for (int i = 0; i < data.Length; i++)
+            {
+                float a = data[i] >= 0f ? data[i] : -data[i];
+                if (a > peak) peak = a;
+            }
+
+            if (peak >= SignalPeak) sawSignalThisFrame = true;
         }
 
         private void LateUpdate()
         {
-            if (Anchor != null)
+            if (sawSignalThisFrame)
             {
-                transform.position = Anchor.position;
+                lastSignalTime = Time.unscaledTime;
+                sawSignalThisFrame = false;
             }
 
-            // Unscaled, damit eine Pause oder Zeitlupe im Spiel die Stimmen nicht einfriert.
+            // Der Tap ist die einzige Quelle: er wird an den Kopf des Sprechers gehaengt,
+            // damit Unitys eigenes Panning und Doppler-freies 3D-Audio direkt daraus
+            // entstehen. So sah es Vivox' "Audio Tap" von Anfang an vor.
+            if (!debugLoop && tap != null && Anchor != null)
+            {
+                tap.transform.position = Anchor.position;
+            }
+
+            KeepVivoxStreamAlive();
+
             float dt = Time.unscaledDeltaTime;
             float t = profile != null
                 ? profile.GetSmoothingFactor(dt)
@@ -157,23 +234,65 @@ namespace Earshot.Voice
             Apply();
         }
 
+        /// <summary>
+        /// Stellt sicher, dass niemand den Vivox-Ringpuffer-Clip aus der Schleife nimmt.
+        /// Wenn loop doch false geworden ist und der Clip deshalb zu Ende gelaufen ist,
+        /// starten wir ihn neu - Vivox' Pause bei Stille lassen wir in Ruhe.
+        /// </summary>
+        private void KeepVivoxStreamAlive()
+        {
+            if (debugLoop || tap == null) return;
+
+            if (tap.loop) return;
+
+            tap.loop = true;
+            VoiceSessionLog.Alert(
+                "TAP-LOOP war aus - Vivox-Ringpuffer waere nach ~3s tot. Loop wieder an.");
+            if (tap.clip != null && !tap.isPlaying)
+            {
+                tap.Play();
+            }
+        }
+
         private void Apply()
         {
-            if (source == null) return;
+            if (tap == null) return;
 
-            source.volume = current.Muted ? 0f : current.Volume;
-            source.spatialBlend = current.SpatialBlend;
+            float volume = current.Muted ? 0f : current.Volume * CoopVoice.HeardVoiceVolume;
+
+            tap.volume = volume;
+            tap.spatialBlend = current.SpatialBlend;
+            tap.pitch = 1f;
+            tap.dopplerLevel = 0f;
+
+            // Die Richtung liefert allein die Position (Tap sitzt am Kopf des Sprechers)
+            // zusammen mit spatialBlend. Ein manuelles Stereo-Pan wuerde das nur verzerren.
+            tap.panStereo = 0f;
 
             if (lowPass != null) lowPass.cutoffFrequency = current.LowPassHz;
             if (highPass != null) highPass.cutoffFrequency = current.HighPassHz;
 
             if (reverb != null)
             {
-                // AudioReverbFilter rechnet in Dezibel. Der lineare Regler von 0 bis 1 wird
-                // hier auf einen hoerbaren Bereich abgebildet: unten praktisch trocken,
-                // oben ein deutlicher Raumanteil.
                 reverb.room = Mathf.Lerp(NoReverbRoomLevel, FullReverbRoomLevel, current.ReverbMix);
             }
+        }
+
+        private void OnDestroy()
+        {
+            tap = null;
+        }
+    }
+
+    [AddComponentMenu("")]
+    internal sealed class VoiceTapCapture : MonoBehaviour
+    {
+        internal VoiceEmitter Emitter;
+
+        private void OnAudioFilterRead(float[] data, int channels)
+        {
+            if (Emitter == null) return;
+            Emitter.CaptureFromTap(data, channels);
         }
     }
 }

@@ -88,7 +88,14 @@ namespace Earshot
             if (controller != null) controller.enabled = false;
 
             var networkTransform = GetComponent<Unity.Netcode.Components.NetworkTransform>();
-            if (networkTransform != null && networkTransform.IsSpawned)
+
+            // NetworkTransform.Teleport() wirft auf der nicht-autoritativen Seite eine
+            // Exception (bei Owner-Autoritaet ist das der Server, wenn er den Avatar eines
+            // fremden Clients bewegt). Der Server ruft Teleport() trotzdem lokal auf, rein
+            // als sofortige optische Vorschau, bis die TeleportOwnerRpc beim Besitzer
+            // ankommt - dafuer reicht ein einfaches Transform-Setzen ohne die
+            // Autoritaetspruefung von NetworkTransform.
+            if (networkTransform != null && networkTransform.IsSpawned && networkTransform.CanCommitToTransform)
             {
                 networkTransform.Teleport(position, rotation, transform.localScale);
             }
@@ -105,6 +112,8 @@ namespace Earshot
 
         public override void OnNetworkSpawn()
         {
+            EnsureVoiceAnchor();
+
             if (IsOwner)
             {
                 StartCoroutine(PublishIdentityWhenReady());
@@ -184,12 +193,16 @@ namespace Earshot
 
         private void OnValidate()
         {
-            if (voiceAnchor == null)
-            {
-                // Ein haeufiger Kopf-Kandidat, damit das Prefab ohne Handarbeit gut klingt.
-                var head = transform.Find("Head") ?? transform.Find("Camera");
-                if (head != null) voiceAnchor = head;
-            }
+            EnsureVoiceAnchor();
+        }
+
+        private void EnsureVoiceAnchor()
+        {
+            if (voiceAnchor != null) return;
+
+            // Ein haeufiger Kopf-Kandidat, damit das Prefab ohne Handarbeit gut klingt.
+            var head = transform.Find("Head") ?? transform.Find("Camera");
+            if (head != null) voiceAnchor = head;
         }
     }
 }

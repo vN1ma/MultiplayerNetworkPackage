@@ -1,5 +1,8 @@
 {
   "dependencies": {
+    "com.unity.multiplayer.center": "1.0.1",
+    "com.unity.multiplayer.playmode": "2.0.2",
+    "com.unity.multiplayer.tools": "2.2.10",
     "com.unity.ugui": "2.0.0",
     "com.unity.modules.audio": "1.0.0",
     "com.unity.modules.imgui": "1.0.0",

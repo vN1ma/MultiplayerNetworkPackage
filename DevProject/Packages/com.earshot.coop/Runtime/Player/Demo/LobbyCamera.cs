@@ -7,6 +7,7 @@ namespace Earshot
     /// schwarz, bis jemand hostet oder beitritt.
     /// </summary>
     [AddComponentMenu("Earshot/Lobby Camera")]
+    [DefaultExecutionOrder(-200)]
     public class LobbyCamera : MonoBehaviour
     {
         private Camera cam;
@@ -16,9 +17,38 @@ namespace Earshot
         {
             cam = GetComponent<Camera>();
             listener = GetComponent<AudioListener>();
+            Apply();
         }
 
-        private void Update()
+        private void OnEnable()
+        {
+            // LateUpdate allein liess ein Frame lang zwei aktive AudioListener zu
+            // (der eigene Avatar-Kopf ist schon da, die Lobby-Kamera hat aber noch
+            // nicht reagiert). Die Events schalten die Lobby sofort im selben
+            // Aufruf ab, in dem der Spieler eintrifft - kein Wettlauf mehr.
+            Coop.PlayerJoined += OnRosterChanged;
+            Coop.PlayerLeft += OnRosterChanged;
+            Coop.StateChanged += OnCoopStateChanged;
+        }
+
+        private void OnDisable()
+        {
+            Coop.PlayerJoined -= OnRosterChanged;
+            Coop.PlayerLeft -= OnRosterChanged;
+            Coop.StateChanged -= OnCoopStateChanged;
+        }
+
+        private void OnRosterChanged(CoopPlayer player) => Apply();
+
+        private void OnCoopStateChanged(CoopState state) => Apply();
+
+        private void LateUpdate()
+        {
+            // Sicherheitsnetz fuer alle Faelle, die kein Event ausloesen.
+            Apply();
+        }
+
+        private void Apply()
         {
             bool showLobby = Coop.LocalPlayer == null;
 

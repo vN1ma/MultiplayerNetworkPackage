@@ -17,6 +17,7 @@ namespace Earshot.EditorTools
     public static class EarshotPlaytestBuilder
     {
         public const string ScenePath = "Assets/Scenes/EarshotPlaytest.unity";
+        public const string MppmScenePath = "Assets/Scenes/EarshotMppmDuo.unity";
         public const string PlayerPath = "Assets/Earshot/DemoPlayer.prefab";
 
         // Waende dicker als die Tuer-Oeffnung, damit der Schall-Strahl nirgends
@@ -33,8 +34,34 @@ namespace Earshot.EditorTools
             Build();
         }
 
+        [MenuItem("Tools/Earshot/Testraum bauen", true)]
+        private static bool ValidateBuild()
+        {
+            return !EditorApplication.isPlaying;
+        }
+
+        [MenuItem("Tools/Earshot/MPPM-Testraum bauen (2 Spieler, 1 PC)")]
+        public static void BuildMppmFromMenu()
+        {
+            BuildMppm();
+        }
+
+        [MenuItem("Tools/Earshot/MPPM-Testraum bauen (2 Spieler, 1 PC)", true)]
+        private static bool ValidateBuildMppm()
+        {
+            return !EditorApplication.isPlaying;
+        }
+
         public static void Build()
         {
+            if (EditorApplication.isPlaying)
+            {
+                EditorUtility.DisplayDialog(
+                    "Play laeuft noch",
+                    "Zuerst Play beenden, dann nochmal Tools > Earshot > Testraum bauen.",
+                    "OK");
+                return;
+            }
             EnsureFolder("Assets/Scenes");
             EnsureFolder("Assets/Earshot");
 
@@ -43,7 +70,7 @@ namespace Earshot.EditorTools
 
             BuildWorld(player);
 
-            EditorSceneManager.SaveScene(scene, ScenePath);
+            SaveSceneAndBakeNetworkObjectHashes(scene, ScenePath);
             AddToBuildSettings(ScenePath);
 
             Selection.activeObject = AssetDatabase.LoadAssetAtPath<SceneAsset>(ScenePath);
@@ -52,13 +79,65 @@ namespace Earshot.EditorTools
             EditorUtility.DisplayDialog(
                 "Testraum steht",
                 "Die Szene 'EarshotPlaytest' ist offen.\n\n" +
-                "Ein Spieler: Play.\n\n" +
-                "Zwei Spieler auf diesem Rechner (ohne Account):\n" +
+                "Allein testen (ein einziger Start): Play druecken. In Zimmer B laeuft ein " +
+                "Testton durch dieselbe Klang-Pipeline wie eine echte Stimme - Tuer auf/zu " +
+                "und naeher/weiter weg zeigen Distanz, Wand und Muffling, ganz ohne Account " +
+                "und ohne zweiten Spieler.\n\n" +
+                "Zwei Spieler auf diesem Rechner (ohne Account, ohne Vivox):\n" +
                 "1. Play im Editor.\n" +
                 "2. File > Build Profiles > Build, EXE starten.\n" +
                 "3. In der EXE: 'Beitreten (dieser PC)'.\n\n" +
+                "Echte Stimme mit zwei Fenstern auf diesem PC: EXE zweimal starten, beim " +
+                "zweiten Start '-profile p2' anhaengen (Verknuepfung > Eigenschaften > Ziel), " +
+                "dann einmal 'Spiel hosten (Internet)' und einmal 'Beitreten (Internet)' mit " +
+                "dem Code.\n\n" +
                 "Freund im Internet: Unity Cloud verknuepfen, neu bauen,\n" +
                 "dann 'Spiel hosten (Internet)' und den Code schicken.\n\n" +
+                "Steuerung: WASD, Maus, E, Esc (Pause), F1, F3.",
+                "OK");
+        }
+
+        /// <summary>
+        /// Eigene, aufgeraeumte Szene fuer den Multiplayer Play Mode: kein Testton, kein
+        /// Menue mit vielen Knoepfen. Die Haupt-Editorinstanz hostet von selbst ueber das
+        /// Internet, der virtuelle Spieler bekommt nur ein Feld fuer den Code. Damit laesst
+        /// sich echtes Vivox mit zwei Fenstern an einem PC testen, ohne zu builden.
+        /// </summary>
+        public static void BuildMppm()
+        {
+            if (EditorApplication.isPlaying)
+            {
+                EditorUtility.DisplayDialog(
+                    "Play laeuft noch",
+                    "Zuerst Play beenden, dann nochmal Tools > Earshot > MPPM-Testraum bauen.",
+                    "OK");
+                return;
+            }
+
+            EnsureFolder("Assets/Scenes");
+            EnsureFolder("Assets/Earshot");
+
+            var player = CreateOrLoadPlayerPrefab();
+            var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+            BuildMppmWorld(player);
+
+            SaveSceneAndBakeNetworkObjectHashes(scene, MppmScenePath);
+            AddToBuildSettings(MppmScenePath);
+
+            Selection.activeObject = AssetDatabase.LoadAssetAtPath<SceneAsset>(MppmScenePath);
+            EditorGUIUtility.PingObject(Selection.activeObject);
+
+            EditorUtility.DisplayDialog(
+                "MPPM-Testraum steht",
+                "Die Szene 'EarshotMppmDuo' ist offen.\n\n" +
+                "1. Window > Multiplayer Play Mode > mindestens einen virtuellen Spieler " +
+                "anlegen und aktivieren.\n" +
+                "2. Play druecken. Die Haupt-Instanz hostet von selbst ueber das Internet " +
+                "und zeigt links oben den Code.\n" +
+                "3. Im Game-View des virtuellen Spielers den Code eingeben, 'Beitreten'.\n\n" +
+                "Kein Testton, kein Auswahlbildschirm - echtes Vivox zwischen zwei Fenstern " +
+                "auf diesem PC.\n\n" +
                 "Steuerung: WASD, Maus, E, Esc (Pause), F1, F3.",
                 "OK");
         }
@@ -113,6 +192,41 @@ namespace Earshot.EditorTools
 
         private static void BuildWorld(GameObject playerPrefab)
         {
+            float roomCenterX = BuildSharedRoom();
+
+            CreateVoiceTestSpeaker(roomCenterX);
+
+            var menu = new GameObject("Earshot UI");
+            menu.AddComponent<CoopQuickMenu>();
+            menu.AddComponent<CoopPauseMenu>();
+            var overlay = menu.AddComponent<VoiceDebugOverlay>();
+            var overlaySo = new SerializedObject(overlay);
+            overlaySo.FindProperty("visible").boolValue = true;
+            overlaySo.ApplyModifiedPropertiesWithoutUndo();
+
+            var managerGo = CreateNetworkManager(playerPrefab);
+            managerGo.AddComponent<PlaytestLocalHost>();
+        }
+
+        /// <summary>
+        /// Dieselbe Zwei-Zimmer-Welt wie im normalen Testraum, aber ohne Testton und ohne
+        /// das Menue mit vielen Knoepfen - nur die Rollen-Anzeige oben links.
+        /// </summary>
+        private static void BuildMppmWorld(GameObject playerPrefab)
+        {
+            BuildSharedRoom();
+
+            var ui = new GameObject("Earshot UI (MPPM)");
+            ui.AddComponent<CoopPauseMenu>();
+            ui.AddComponent<VoiceDebugOverlay>();
+            ui.AddComponent<MppmDuoTester>();
+
+            CreateNetworkManager(playerPrefab);
+        }
+
+        /// <summary>Haus, Tuer, Zonen und Spawner - identisch fuer alle Testraum-Varianten.</summary>
+        private static float BuildSharedRoom()
+        {
             var light = new GameObject("Directional Light");
             var sun = light.AddComponent<Light>();
             sun.type = LightType.Directional;
@@ -144,23 +258,33 @@ namespace Earshot.EditorTools
             var spawner = spawnerGo.AddComponent<PlayerSpawner>();
             spawner.SetSpawnPoints(spawnA.transform, spawnB.transform);
 
-            var menu = new GameObject("Earshot UI");
-            menu.AddComponent<CoopQuickMenu>();
-            menu.AddComponent<CoopPauseMenu>();
-            var overlay = menu.AddComponent<VoiceDebugOverlay>();
-            var overlaySo = new SerializedObject(overlay);
-            overlaySo.FindProperty("visible").boolValue = true;
-            overlaySo.ApplyModifiedPropertiesWithoutUndo();
+            return roomCenterX;
+        }
 
+        private static GameObject CreateNetworkManager(GameObject playerPrefab)
+        {
             var managerGo = new GameObject("NetworkManager");
             var manager = managerGo.AddComponent<NetworkManager>();
             var transport = managerGo.AddComponent<UnityTransport>();
             managerGo.AddComponent<CoopBootstrap>();
-            managerGo.AddComponent<PlaytestLocalHost>();
             manager.NetworkConfig.NetworkTransport = transport;
             manager.NetworkConfig.PlayerPrefab = playerPrefab;
 
             RegisterPrefab(playerPrefab);
+            return managerGo;
+        }
+
+        /// <summary>
+        /// Ein Testton in Zimmer B, der durch dieselbe Pipeline wie eine echte Stimme
+        /// laeuft. Damit laesst sich Distanz, Tuer und Wand mit einem einzigen Spielstart
+        /// pruefen - ohne zweiten Spieler, ohne Vivox. Bleibt automatisch aus, sobald ein
+        /// echter Mitspieler ueber's Internet beitritt.
+        /// </summary>
+        private static void CreateVoiceTestSpeaker(float roomCenterX)
+        {
+            var speaker = new GameObject("Voice Test Speaker (Zimmer B)");
+            speaker.transform.position = new Vector3(roomCenterX, 1.6f, 0f);
+            speaker.AddComponent<VoiceTestSpeaker>();
         }
 
         /// <summary>
@@ -233,6 +357,27 @@ namespace Earshot.EditorTools
             // Szene-NetworkObjects werden von Netcode automatisch gespawnt, sobald sie
             // in der geladenen Szene liegen. Kein Extra-Eintrag noetig.
             _ = go;
+        }
+
+        /// <summary>
+        /// Speichert die Szene und erzwingt danach, dass jedes in der Szene platzierte
+        /// NetworkObject (z.B. die Tuer) einen echten GlobalObjectIdHash bekommt.
+        /// <para>
+        /// <c>NetworkObject.OnValidate()</c> berechnet diesen Hash - aber Unity ruft
+        /// OnValidate fuer per Skript per <c>AddComponent</c> erzeugte Komponenten nicht
+        /// zuverlaessig auf. Ohne diesen Schritt landet in der gespeicherten Szene ein
+        /// Hash von 0, und Netcode meldet beim Beitreten eines zweiten Spielers
+        /// "NetworkPrefab hash was not found!" / "Failed to spawn NetworkObject!" fuer
+        /// die Tuer. Ein Schliessen-und-wieder-Oeffnen der Szene loest bei Unity
+        /// zuverlaessig OnValidate fuer alle Komponenten aus (Teil der normalen
+        /// Deserialisierung im Editor), danach wird nochmal gespeichert.
+        /// </para>
+        /// </summary>
+        private static void SaveSceneAndBakeNetworkObjectHashes(UnityEngine.SceneManagement.Scene scene, string scenePath)
+        {
+            EditorSceneManager.SaveScene(scene, scenePath);
+            var reopened = EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
+            EditorSceneManager.SaveScene(reopened, scenePath);
         }
 
         private static void CreateZone(string objectName, string zoneName, Vector3 center, Vector3 size)

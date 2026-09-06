@@ -35,6 +35,7 @@ namespace Earshot
 
         private void Awake()
         {
+            // In Builds startet die Anzeige aus. F3 schaltet sie ein - auch mit einem Freund.
             if (!Application.isEditor) visible = false;
         }
 
@@ -42,8 +43,8 @@ namespace Earshot
         {
             if (!visible) return;
 
-            const float width = 380f;
-            const float height = 220f;
+            const float width = 520f;
+            const float height = 420f;
             GUILayout.BeginArea(new Rect(margin.x, margin.y, width, height), GUI.skin.box);
             GUILayout.Label("<b>Earshot Voice</b>", RichLabel);
 
@@ -57,40 +58,54 @@ namespace Earshot
             if (runtime == null || runtime.Emitters.Count == 0)
             {
                 GUILayout.Label("Keine empfangenen Stimmen.", RichLabel);
-                GUILayout.EndArea();
-                return;
+            }
+            else
+            {
+                for (int i = 0; i < runtime.Emitters.Count; i++)
+                {
+                    var emitter = runtime.Emitters[i];
+                    if (emitter == null) continue;
+
+                    string name = emitter.PlayerId;
+                    if (PlayerRegistry.TryGetByUgsId(emitter.PlayerId, out var player) && player != null)
+                    {
+                        name = player.DisplayName;
+                    }
+
+                    var sample = emitter.Current;
+                    var context = emitter.LastContext;
+
+                    GUILayout.Space(6f);
+                    GUILayout.Label($"<b>{name}</b>", RichLabel);
+                    GUILayout.Label(
+                        $"  Distanz {context.Distance:0.0} m    " +
+                        $"Lautstaerke {sample.Volume:0.00}    " +
+                        $"Tiefpass {sample.LowPassHz:0} Hz",
+                        RichLabel);
+                    GUILayout.Label(
+                        $"  Hall {sample.ReverbMix:0.00}    " +
+                        $"Portal {(context.HasPortal ? $"ja ({context.PortalOpenness:0.00})" : "nein")}    " +
+                        $"Wand {context.OcclusionAmount:0.00}",
+                        RichLabel);
+                    GUILayout.Label(
+                        $"  Zuhoerer {(context.ListenerZone != null ? context.ListenerZone.ZoneName : "kein Raum")}    " +
+                        $"Sprecher {(context.SpeakerZone != null ? context.SpeakerZone.ZoneName : "kein Raum")}",
+                        RichLabel);
+                }
             }
 
-            for (int i = 0; i < runtime.Emitters.Count; i++)
+            GUILayout.Space(10f);
+            GUILayout.Label("<b>Log (dieser Rechner = wen ICH hoere)</b>", RichLabel);
+            if (!string.IsNullOrEmpty(VoiceSessionLog.FilePath))
             {
-                var emitter = runtime.Emitters[i];
-                if (emitter == null) continue;
+                GUILayout.Label(VoiceSessionLog.FilePath, RichLabel);
+            }
 
-                string name = emitter.PlayerId;
-                if (PlayerRegistry.TryGetByUgsId(emitter.PlayerId, out var player) && player != null)
-                {
-                    name = player.DisplayName;
-                }
-
-                var sample = emitter.Current;
-                var context = emitter.LastContext;
-
-                GUILayout.Space(6f);
-                GUILayout.Label($"<b>{name}</b>", RichLabel);
-                GUILayout.Label(
-                    $"  Distanz {context.Distance:0.0} m    " +
-                    $"Lautstaerke {sample.Volume:0.00}    " +
-                    $"Tiefpass {sample.LowPassHz:0} Hz",
-                    RichLabel);
-                GUILayout.Label(
-                    $"  Hall {sample.ReverbMix:0.00}    " +
-                    $"Portal {(context.HasPortal ? $"ja ({context.PortalOpenness:0.00})" : "nein")}    " +
-                    $"Wand {context.OcclusionAmount:0.00}",
-                    RichLabel);
-                GUILayout.Label(
-                    $"  Zuhoerer {(context.ListenerZone != null ? context.ListenerZone.ZoneName : "kein Raum")}    " +
-                    $"Sprecher {(context.SpeakerZone != null ? context.SpeakerZone.ZoneName : "kein Raum")}",
-                    RichLabel);
+            var lines = VoiceSessionLog.Recent;
+            int start = lines.Count > 12 ? lines.Count - 12 : 0;
+            for (int i = start; i < lines.Count; i++)
+            {
+                GUILayout.Label(lines[i], RichLabel);
             }
 
             GUILayout.EndArea();

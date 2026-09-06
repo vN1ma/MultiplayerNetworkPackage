@@ -63,4 +63,31 @@ namespace Earshot.Voice
         /// <summary>Verlaesst den Sprachkanal und raeumt auf.</summary>
         Task DisconnectAsync();
     }
+
+    /// <summary>
+    /// Optionale Erweiterung fuer Backends, deren zugrunde liegender Dienst weiss, ob ein
+    /// Sprecher GERADE aktiv sendet, und die einen haengen gebliebenen Empfang von aussen
+    /// neu aufbauen koennen. Getrennt von <see cref="IVoiceBackend"/>, damit einfachere
+    /// Backends (Tests, zukuenftige Anbieter) das nicht implementieren muessen.
+    /// <para>
+    /// Der Grund, warum das ueberhaupt noetig ist: <c>AudioSource.isPlaying</c> taugt
+    /// NICHT als Beweis, dass wieder echtes Audio ankommt. Vivox' eigener
+    /// <c>VivoxAudioProcessor</c> pausiert die AudioSource, wenn ueber ~400 ms kein neues
+    /// Netzwerk-Audio ankommt, kann sie aber auch wieder "spielend" markieren, ohne dass
+    /// je wieder echte Sprachdaten fliessen (in echten Logs beobachtet: <c>isPlaying</c>
+    /// sprang zurueck auf true, waehrend das rohe Tap-Signal - <see cref="VoiceEmitter.TapIsPlaying"/> -
+    /// durchgehend tot blieb). Deshalb entscheidet <see cref="VoiceRuntime"/> ausschliesslich
+    /// anhand des echten Signalpegels (<see cref="VoiceEmitter.TapIsPlaying"/>), ob ein Tap
+    /// haengt, und fragt hier nur noch, ob der Dienst selbst meint, der Teilnehmer rede
+    /// gerade (um normale Sprechpausen nicht mit einem echten Haenger zu verwechseln).
+    /// </para>
+    /// </summary>
+    internal interface IVoiceBackendRecovery
+    {
+        /// <summary>Meldet der zugrunde liegende Dienst gerade aktive Sprachaktivitaet von diesem Spieler?</summary>
+        bool IsSpeaking(string playerId);
+
+        /// <summary>Baut den Empfangsweg (z.B. den Audio Tap) fuer diesen Spieler komplett neu auf.</summary>
+        void RecoverSpeaker(string playerId);
+    }
 }

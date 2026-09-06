@@ -1,4 +1,5 @@
 using System;
+using Earshot.Voice;
 using UnityEngine;
 
 namespace Earshot
@@ -78,7 +79,11 @@ namespace Earshot
             GUILayout.Label("Audio", Title);
 
             GUILayout.Label($"Spiel-Lautstaerke: {Mathf.RoundToInt(CoopVoice.GameVolume * 100f)} %", Body);
-            CoopVoice.GameVolume = GUILayout.HorizontalSlider(CoopVoice.GameVolume, 0f, 1f);
+            float gameVol = GUILayout.HorizontalSlider(CoopVoice.GameVolume, 0f, 1f);
+            if (Mathf.Abs(gameVol - CoopVoice.GameVolume) > 0.001f)
+            {
+                CoopVoice.GameVolume = gameVol;
+            }
 
             bool muted = CoopVoice.MicrophoneMuted;
             if (GUILayout.Button(
@@ -86,29 +91,46 @@ namespace Earshot
                     GUILayout.Height(32f)))
             {
                 CoopVoice.ToggleMicrophone();
+                status = CoopVoice.MicrophoneMuted ? "Mikrofon stumm" : "Mikrofon an";
             }
 
             DrawDeviceRow("Mikrofon", CoopVoice.InputDeviceNames, CoopVoice.ActiveInputDeviceName, name =>
             {
                 _ = CoopVoice.SetInputDeviceAsync(name);
-                status = "Mikrofon merken: " + name;
+                status = "Mikrofon: " + name;
             });
 
             if (CoopVoice.IsConnected)
             {
-                GUILayout.Label($"Mikrofon-Pegel (Vivox): {CoopVoice.MicrophoneVolume}", Body);
-                CoopVoice.MicrophoneVolume = Mathf.RoundToInt(
+                GUILayout.Label($"Mikrofon-Pegel (Aufnahme): {CoopVoice.MicrophoneVolume}", Body);
+                int micPeg = Mathf.RoundToInt(
                     GUILayout.HorizontalSlider(CoopVoice.MicrophoneVolume, -50f, 50f));
+                if (micPeg != CoopVoice.MicrophoneVolume)
+                {
+                    CoopVoice.MicrophoneVolume = micPeg;
+                }
 
-                GUILayout.Label($"Stimmen-Pegel (Vivox): {CoopVoice.VoiceOutputVolume}", Body);
-                CoopVoice.VoiceOutputVolume = Mathf.RoundToInt(
-                    GUILayout.HorizontalSlider(CoopVoice.VoiceOutputVolume, -50f, 50f));
+                GUILayout.Label(
+                    $"Gehoerte Stimmen: {Mathf.RoundToInt(CoopVoice.HeardVoiceVolume * 100f)} %",
+                    Body);
+                float heard = GUILayout.HorizontalSlider(CoopVoice.HeardVoiceVolume, 0f, 1f);
+                if (Mathf.Abs(heard - CoopVoice.HeardVoiceVolume) > 0.001f)
+                {
+                    CoopVoice.HeardVoiceVolume = heard;
+                }
 
                 DrawDeviceRow("Lautsprecher", CoopVoice.OutputDeviceNames, CoopVoice.ActiveOutputDeviceName, name =>
                 {
                     _ = CoopVoice.SetOutputDeviceAsync(name);
                     status = "Lautsprecher: " + name;
                 });
+
+                GUILayout.Label(
+                    "Mikrofon-Wechsel steht im Voice-Log (GERAET ...). " +
+                    "Gehoerte Stimmen kommen ueber Unity, also den Windows-Standard-Lautsprecher. " +
+                    "Wenn die Stimme nicht auf ein anderes Geraet wandert: in Windows das " +
+                    "Standard-Wiedergabegeraet aendern.",
+                    Body);
             }
             else
             {
@@ -125,6 +147,24 @@ namespace Earshot
 
             if (Coop.IsInSession)
             {
+                GUILayout.Space(12f);
+                GUILayout.Label("Voice-Log", Title);
+                GUILayout.Label(
+                    "Nach der Runde: Ordner EarshotLogs neben der EXE (nicht in AppData). " +
+                    "Dort steht, wer geredet hat, wen dieser Rechner gehoert hat, " +
+                    "und ob Mikrofon/Lautsprecher wirklich gewechselt haben. " +
+                    "Den Ordner des Kumpels brauchst du fuer die Gegenrichtung.",
+                    Body);
+                if (!string.IsNullOrEmpty(VoiceSessionLog.FilePath))
+                {
+                    GUILayout.Label(VoiceSessionLog.FilePath, Body);
+                }
+
+                if (GUILayout.Button("Voice-Log-Ordner oeffnen", GUILayout.Height(32f)))
+                {
+                    VoiceSessionLog.OpenFolder();
+                }
+
                 GUILayout.Space(12f);
                 if (GUILayout.Button("Sitzung verlassen", GUILayout.Height(36f)))
                 {
@@ -161,6 +201,7 @@ namespace Earshot
             for (int i = 0; i < devices.Length; i++)
             {
                 string name = devices[i];
+                if (CoopVoice.IsUnusableAudioDevice(name)) continue;
                 bool selected = name == active;
                 if (GUILayout.Button((selected ? "> " : "  ") + name, GUILayout.Height(26f)))
                 {

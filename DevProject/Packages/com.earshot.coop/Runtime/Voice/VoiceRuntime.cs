@@ -27,6 +27,23 @@ namespace Earshot.Voice
         private float nextEvaluation;
         private float lastEvaluation;
 
+        // Selbstheilung fuer haengende Taps (siehe IVoiceBackendRecovery). Bewusst hier
+        // und nicht im Backend: nur hier kennen wir TapIsPlaying, den einzigen Wert, der
+        // wirklich beweist, dass ECHTES Audio ankommt - AudioSource.isPlaying nicht.
+        private readonly Dictionary<string, float> deadSince =
+            new Dictionary<string, float>(System.StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, float> lastRecoveryAttempt =
+            new Dictionary<string, float>(System.StringComparer.OrdinalIgnoreCase);
+        private readonly List<VoiceEmitter> stuckCheckBuffer = new List<VoiceEmitter>();
+
+        // TapIsPlaying braucht selbst schon bis zu 0,6s ohne Signal, um "tot" zu melden.
+        // Diese zusaetzliche Wartezeit kommt oben drauf, bevor wir eingreifen.
+        private const float StuckSeconds = 1.2f;
+
+        // Verhindert eine Neuaufbau-Schleife, falls die Zustellung fuer diesen
+        // Teilnehmer dauerhaft gestoert ist (z.B. echtes Netzwerkproblem).
+        private const float RecoveryCooldownSeconds = 6f;
+
         internal static VoiceRuntime Instance => instance;
 
         /// <summary>Das aktive Backend. Null, solange keine Sitzung laeuft.</summary>
@@ -49,6 +66,7 @@ namespace Earshot.Voice
             go.hideFlags = HideFlags.NotEditable;
 
             instance = go.AddComponent<VoiceRuntime>();
+            go.AddComponent<VoiceSessionRecorder>();
             return instance;
         }
 
@@ -94,6 +112,8 @@ namespace Earshot.Voice
             }
 
             byPlayerId.Clear();
+            deadSince.Clear();
+            lastRecoveryAttempt.Clear();
         }
 
         /// <summary>
@@ -125,6 +145,7 @@ namespace Earshot.Voice
 
             emitters.Add(emitter);
             byPlayerId[speaker.PlayerId] = emitter;
+            VoiceSessionLog.Note($"TAP an: {speaker.PlayerId}");
         }
 
         private void OnSpeakerRemoved(string playerId)
@@ -133,6 +154,7 @@ namespace Earshot.Voice
 
             byPlayerId.Remove(playerId);
             emitters.Remove(emitter);
+            VoiceSessionLog.Note($"TAP weg: {playerId}");
 
             // Nur die eigene Komponente entfernen. Das GameObject gehoert dem Backend,
             // und bei Vivox raeumt es der Dienst selbst ab.
@@ -147,6 +169,7 @@ namespace Earshot.Voice
             {
                 emitter.Anchor = player.VoiceAnchor;
                 CoopLog.Info($"Stimme von {player.DisplayName} ihrem Avatar zugeordnet.");
+                VoiceSessionLog.Note($"AVATAR: Stimme von {player.DisplayName} am Kopf.");
                 return;
             }
 
@@ -173,6 +196,7 @@ namespace Earshot.Voice
                 matched != null && !matched.IsLocalPlayer)
             {
                 emitter.Anchor = matched.VoiceAnchor;
+                VoiceSessionLog.Note($"AVATAR: Stimme {emitter.PlayerId} -> {matched.DisplayName}");
                 return;
             }
 
@@ -194,6 +218,8 @@ namespace Earshot.Voice
                 CoopLog.Warn(
                     $"Stimme '{emitter.PlayerId}' an {fallback.DisplayName} gebunden " +
                     $"(UGS '{fallback.UgsPlayerId}').");
+                VoiceSessionLog.Note(
+                    $"AVATAR (Fallback): {emitter.PlayerId} -> {fallback.DisplayName}");
             }
         }
 
@@ -212,6 +238,13 @@ namespace Earshot.Voice
 
         private void Update()
         {
+            // Laeuft unabhaengig vom Auswertungstakt unten - ein haengen gebliebener
+            // Tap soll nicht erst auf die naechste raeumliche Neuberechnung warten.
+            if (backend is IVoiceBackendRecovery recovery)
+            {
+                PollStuckTaps(recovery);
+            }
+
             if (emitters.Count == 0) return;
 
             var profile = CoopSettings.Instance.VoiceProfile;
@@ -223,7 +256,21 @@ namespace Earshot.Voice
             lastEvaluation = Time.unscaledTime;
             nextEvaluation = Time.unscaledTime + interval;
 
-            if (!TryGetListenerPosition(out Vector3 listenerPosition)) return;
+            if (!TryGetListenerPosition(out Vector3 listenerPosition))
+            {
+                // Ohne Ohr nicht stumm bleiben - sonst bleibt der Tap bei Lautstaerke 0.
+                for (int i = 0; i < emitters.Count; i++)
+                {
+                    var waiting = emitters[i];
+                    if (waiting == null) continue;
+                    var audible = VoiceSample.Default;
+                    audible.SpatialBlend = 0f;
+                    audible.Volume = 0.55f;
+                    waiting.SetTarget(in audible);
+                }
+
+                return;
+            }
 
             for (int i = 0; i < emitters.Count; i++)
             {
@@ -253,6 +300,57 @@ namespace Earshot.Voice
 
                 emitter.LastContext = context;
                 emitter.SetTarget(in sample);
+            }
+        }
+
+        /// <summary>
+        /// Prueft jeden Frame den echten Signalpegel jedes Taps (<see cref="VoiceEmitter.TapIsPlaying"/>).
+        /// Bleibt der laenger als <see cref="StuckSeconds"/> tot, WAEHREND der Dienst den
+        /// Sprecher noch als aktiv redend meldet, ist das kein normales Sprechpausen-Schweigen
+        /// mehr, sondern ein haengen gebliebener Empfang - dann baut das Backend den Tap neu auf.
+        /// </summary>
+        private void PollStuckTaps(IVoiceBackendRecovery recovery)
+        {
+            float now = Time.unscaledTime;
+
+            // Erst eine Momentaufnahme, dann erst heilen: RecoverSpeaker() entfernt und
+            // erzeugt Emitter synchron neu, wuerde also die Original-Liste mitten in der
+            // Schleife veraendern.
+            stuckCheckBuffer.Clear();
+            stuckCheckBuffer.AddRange(emitters);
+
+            for (int i = 0; i < stuckCheckBuffer.Count; i++)
+            {
+                var emitter = stuckCheckBuffer[i];
+                if (emitter == null || string.IsNullOrEmpty(emitter.PlayerId)) continue;
+                if (emitter.PlayerId.StartsWith("debug:", System.StringComparison.Ordinal)) continue;
+
+                string playerId = emitter.PlayerId;
+
+                if (emitter.TapIsPlaying)
+                {
+                    deadSince.Remove(playerId);
+                    continue;
+                }
+
+                if (!deadSince.TryGetValue(playerId, out float since))
+                {
+                    deadSince[playerId] = now;
+                    continue;
+                }
+
+                if (now - since < StuckSeconds) continue;
+
+                // Redet der Dienst zufolge gerade niemand, ist die Stille normal
+                // (Sprechpause) - dann gibt es nichts zu heilen.
+                if (!recovery.IsSpeaking(playerId)) continue;
+
+                lastRecoveryAttempt.TryGetValue(playerId, out float lastTry);
+                if (now - lastTry < RecoveryCooldownSeconds) continue;
+
+                lastRecoveryAttempt[playerId] = now;
+                deadSince.Remove(playerId);
+                recovery.RecoverSpeaker(playerId);
             }
         }
 

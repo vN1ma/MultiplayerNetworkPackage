@@ -53,7 +53,7 @@ namespace Earshot
         private bool verboseLogging = true;
 
         [SerializeField]
-        [Tooltip("Jede Editor-Instanz meldet sich als eigener Spieler an. Noetig, damit im Multiplayer Play Mode mehrere Instanzen gleichzeitig funktionieren. In Builds ohne Wirkung.")]
+        [Tooltip("Jede Editor-Instanz meldet sich als eigener Spieler an. Noetig, damit im Multiplayer Play Mode mehrere Instanzen gleichzeitig funktionieren. In Builds ohne Wirkung - dort hilft stattdessen das Startargument '-profile NAME' fuer den Solo-Test mit zwei EXE-Fenstern.")]
         private bool uniqueProfilePerEditorInstance = true;
 
         public int MaxPlayers => Mathf.Clamp(maxPlayers, 2, MaxSupportedPlayers);
@@ -62,6 +62,16 @@ namespace Earshot
         public bool VoiceEnabled => voiceEnabled;
         public VoiceProfile VoiceProfile => voiceProfile;
         public bool MicrophoneMutedOnJoin => microphoneMutedOnJoin;
+
+        /// <summary>
+        /// Wechselt das Klangprofil zur Laufzeit. Vorgesehen fuer Szenen mit anderem
+        /// Massstab, ohne das Testhaus-Profil zu ueberschreiben.
+        /// </summary>
+        public void SetVoiceProfile(VoiceProfile profile)
+        {
+            voiceProfile = profile;
+        }
+
         public bool VerboseLogging => verboseLogging;
         public bool UniqueProfilePerEditorInstance => uniqueProfilePerEditorInstance;
 
