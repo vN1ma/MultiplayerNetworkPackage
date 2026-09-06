@@ -13,6 +13,12 @@ namespace Earshot.Voice
         public const float ClosedLengthPenalty = 12f;
         public const float OpennessCheapThreshold = 0.5f;
 
+        /// <summary>
+        /// Jede Tuer/Ecke kostet extra Meter. Sonst klingt der naechste Raum
+        /// fast so laut wie der Flur davor.
+        /// </summary>
+        public const float OpeningTurnPenalty = 2.5f;
+
         public readonly struct Connection
         {
             public Connection(VoiceZone a, VoiceZone b, VoicePortal portal, float weight)
@@ -113,7 +119,7 @@ namespace Earshot.Voice
                 int key = portal.GetInstanceID();
                 portalsByKey[key] = portal;
 
-                float length = EdgeLength(a, b, portal);
+                float length = EdgeLength(a, b, portal) + OpeningPenalty(portal);
                 float closed = 1f - portal.Openness;
                 float weight = length + closed * ClosedLengthPenalty;
                 if (portal.Openness >= OpennessCheapThreshold)
@@ -313,10 +319,26 @@ namespace Earshot.Voice
             float geometric = Vector3.Distance(from, to);
             if (portal != null && portal.HasTravelLength)
             {
-                return Mathf.Max(geometric, portal.TravelLength);
+                geometric = Mathf.Max(geometric, portal.TravelLength);
             }
 
-            return geometric;
+            return geometric + OpeningPenalty(portal);
+        }
+
+        public static float OpeningPenalty(VoicePortal portal)
+        {
+            if (portal == null || portal.Kind == VoicePortalKind.Stair) return 0f;
+            return OpeningTurnPenalty;
+        }
+
+        /// <summary>
+        /// Wahr, wenn das Portal genau diese zwei Zonen bewegen.
+        /// </summary>
+        public static bool PortalJoins(VoicePortal portal, VoiceZone a, VoiceZone b)
+        {
+            if (portal == null || a == null || b == null || a == b) return false;
+            if (!TryResolveSides(portal, out var left, out var right)) return false;
+            return (left == a && right == b) || (left == b && right == a);
         }
     }
 }

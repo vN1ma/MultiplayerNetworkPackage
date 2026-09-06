@@ -10,6 +10,11 @@ Auswirkung: welches Arbeitspaket/welche Datei betroffen ist
 ```
 
 
+## [2026-09-06] Graph schlaegt Luftlinie sobald zwei Raeume beteiligt sind
+Kontext: Nutzer: auf der Treppe harter Cutoff; Flurende leiser als der Raum eine Tuer weiter.
+Entscheidung/Fakt: Verschiedene Zonen nutzen immer den Laufweg. Ausserhalb einer Box gilt die naechste Zone (Treppe). Jede Tuer kostet 2,5 m extra, damit ein Raum mehr wirklich leiser ist. Luftlinie nur noch im selben Raum.
+Auswirkung: Hoertest-Treppenportal sitzt am Podest-Uebergang. Szene neu erzeugen.
+
 ## [2026-09-06] Hoertest-Ton ist Testaudio, E ist Pause
 Kontext: Nutzer legt `Testaudio.mp3` ins Repo-Root und will den Clip an den Emittern, ohne bei jedem E von vorn.
 Entscheidung/Fakt: Der Clip liegt als Resources-Asset im Paket. E pausiert/unpausiert; Neustart nur nach Ende. Synthetischer Loop bleibt Fallback.

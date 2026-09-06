@@ -111,14 +111,15 @@ namespace Earshot.Voice
                 DeltaTime = deltaTime
             };
 
-            MeasureLineOfSight(profile, ref context);
-
-            context.ListenerZone = VoiceZone.FindAt(listenerPosition, profile.ZoneLayers, zoneBuffer);
-            context.SpeakerZone = VoiceZone.FindAt(speakerPosition, profile.ZoneLayers, zoneBuffer);
+            context.ListenerZone = VoiceZone.FindAtOrNearest(
+                listenerPosition, profile.ZoneLayers, zoneBuffer);
+            context.SpeakerZone = VoiceZone.FindAtOrNearest(
+                speakerPosition, profile.ZoneLayers, zoneBuffer);
             context.SameZone = context.ListenerZone == context.SpeakerZone;
             context.HearingDistance = context.Distance;
             context.ApparentPosition = speakerPosition;
 
+            MeasureLineOfSight(profile, ref context);
             TryApplyGraph(ref context);
             FillApparentDirection(ref context);
 
@@ -126,13 +127,13 @@ namespace Earshot.Voice
         }
 
         /// <summary>
-        /// Freie Sichtlinie bleibt der Schnellpfad. Nur wenn eine Wand im Weg ist
-        /// und beide in Zonen stehen, darf der Graph den Umweg ueber Tueren nehmen.
-        /// Ohne Zonen/Portale aendert sich nichts — Occlusion bleibt der Fallback.
+        /// Stehen beide in verschiedenen Raeumen und gibt es einen Weg durch Tueren,
+        /// gilt immer der Laufweg — nicht die Luftlinie durch Decke oder Schacht.
+        /// Freie Sicht in demselben Raum bleibt Luftlinie. Ohne Graph bleibt Occlusion.
         /// </summary>
         private void TryApplyGraph(ref VoiceContext context)
         {
-            if (context.OcclusionAmount <= 0f || context.SameZone ||
+            if (context.SameZone ||
                 context.ListenerZone == null || context.SpeakerZone == null)
             {
                 VoiceGraph.RememberPath(
@@ -252,7 +253,10 @@ namespace Earshot.Voice
             CastOcclusionRay(origin + up * 0.25f, direction, remaining, profile, ref bestOcclusion, ref mostOpen, ref mostOpenPortal);
             CastOcclusionRay(origin - up * 0.25f, direction, remaining, profile, ref bestOcclusion, ref mostOpen, ref mostOpenPortal);
 
-            if (mostOpenPortal != null)
+            if (mostOpenPortal != null &&
+                (context.ListenerZone == null ||
+                 context.SpeakerZone == null ||
+                 VoiceGraph.PortalJoins(mostOpenPortal, context.ListenerZone, context.SpeakerZone)))
             {
                 context.HasPortal = true;
                 context.Portal = mostOpenPortal;

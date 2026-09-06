@@ -25,3 +25,4 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 - Hoerregler direkt am Player (`EarshotProximityVoice`): Distanz, Luft, Waende, Tueren, Graph, Hall, getrennte Glaettung
 - `Voice Source Color` pro Quelle: Dumpf, Hall, blechern, Presets (Testlautsprecher, Player, AudioSource)
 - Hoertest: `Testaudio` statt synthetischem Loop; E pausiert/setzt fort
+- Schallweg folgt Tueren/Treppen; kein Cutoff mehr, wenn man knapp aus der Zone tritt

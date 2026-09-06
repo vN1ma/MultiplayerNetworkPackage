@@ -10,6 +10,10 @@ Neueste Einträge oben. Format (siehe `.clinerules/01-workflow.md`):
 ```
 
 
+## [2026-09-06] – Schall folgt dem Laufweg, nicht der Luftlinie
+- Zwischen Raeumen zaehlt der Weg durch Tueren und Treppen. Luftlinie durch Decke oder Schacht macht die Stimme nicht mehr ploetzlich laut oder leise. Knapp neben einer Zone (Treppe) gilt der naechste Raum.
+- Betroffene Dateien: `VoicePipeline.cs`, `VoiceGraph.cs`, `VoiceZone.cs`, `HearingTestLevel.cs`
+
 ## [2026-09-06] – Hoertest spielt Testaudio, E pausiert
 - Die Testlautsprecher spielen `Testaudio.mp3`. E pausiert und setzt an derselben Stelle fort; neu von vorn nur, wenn der Clip durch ist.
 - Betroffene Dateien: `VoiceTestSpeaker.cs`, `VoiceEmitter.cs`, `HearingTest/Resources/Testaudio.mp3`

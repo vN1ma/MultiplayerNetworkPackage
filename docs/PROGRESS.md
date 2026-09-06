@@ -6,7 +6,7 @@
 
 Status: Treppen, Richtung aus der Tuer, Offset-Faecher und Autorentools sind drin. Zonen/Portale bleiben optional.
 
-Nächster Schritt: Phase 4 Walkie-Talkie. Hoertest-Emitter spielen `Testaudio`; E pausiert/setzt fort. Hoerregler am Player, `Voice Source Color` am Emitter. Szene: `Earshot Voice / Create Hearing Test Scene` → `Assets/EarshotHearingTest.unity`.
+Nächster Schritt: Phase 4 Walkie-Talkie. Schall folgt dem Laufweg (Tueren/Treppen), nicht der Luftlinie durch die Decke. Hoertest neu erzeugen nach Package-Update.
 
 ---
 

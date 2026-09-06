@@ -135,6 +135,35 @@ namespace Earshot.Voice.Tests
         }
 
         [Test]
+        public void FurtherRoom_IsQuieterThanHall_AlongWalkPath()
+        {
+            BuildHallAndTwoRooms();
+            var speaker = new Vector3(7f, 1f, 0f);
+            var inHall = pipeline.Evaluate(profile, new Vector3(0f, 1f, 0f), speaker, 1f, out var hallContext);
+            var inFarRoom = pipeline.Evaluate(profile, new Vector3(7f, 1f, 8f), speaker, 1f, out var farContext);
+
+            Assert.IsTrue(hallContext.UsedGraph);
+            Assert.IsTrue(farContext.UsedGraph);
+            Assert.Greater(farContext.HearingDistance, hallContext.HearingDistance);
+            Assert.Less(inFarRoom.Volume, inHall.Volume);
+        }
+
+        [Test]
+        public void JustOutsideZone_SnapsToNearest_AndKeepsGraph()
+        {
+            BuildHallAndTwoRooms();
+            pipeline.Evaluate(
+                profile,
+                new Vector3(0f, 3.2f, 0f),
+                new Vector3(7f, 1f, 0f),
+                1f,
+                out var context);
+
+            Assert.IsNotNull(context.ListenerZone);
+            Assert.IsTrue(context.UsedGraph);
+        }
+
+        [Test]
         public void ApparentDirection_PointsAtFirstPortal_WhenGraphWins()
         {
             BuildLHall(openDoor: true);
@@ -185,6 +214,19 @@ namespace Earshot.Voice.Tests
                 stair.SetTravelLength(8f);
             }
 
+            Physics.SyncTransforms();
+            VoiceGraph.MarkDirty();
+            VoiceGraph.Rebuild();
+        }
+
+        private void BuildHallAndTwoRooms()
+        {
+            Zone("Hall", new Vector3(0f, 1.5f, 4f), new Vector3(4f, 3f, 12f));
+            Zone("NearRoom", new Vector3(6f, 1.5f, 0f), new Vector3(6f, 3f, 6f));
+            Zone("FarRoom", new Vector3(6f, 1.5f, 8f), new Vector3(6f, 3f, 6f));
+            Box("Split", new Vector3(2f, 1.5f, 4f), new Vector3(0.4f, 3f, 12f), trigger: false);
+            Portal("DoorNear", new Vector3(2f, 1.5f, 0f), new Vector3(0.4f, 2.4f, 1.6f), Vector3.right, 1f);
+            Portal("DoorFar", new Vector3(2f, 1.5f, 8f), new Vector3(0.4f, 2.4f, 1.6f), Vector3.right, 1f);
             Physics.SyncTransforms();
             VoiceGraph.MarkDirty();
             VoiceGraph.Rebuild();

@@ -144,9 +144,9 @@ namespace Earshot.Voice
 
         private void BuildZonesAndPortals()
         {
-            Zone("Zone_Flur", new Vector3(0f, 1.5f, 8f), new Vector3(2.9f, 2.8f, 15.6f));
+            Zone("Zone_Flur", new Vector3(0f, 1.55f, 8.1f), new Vector3(2.9f, 2.9f, 16f));
             Zone("Zone_RaumUnten", new Vector3(5f, 1.5f, 5f), new Vector3(6.8f, 2.8f, 5.8f));
-            Zone("Zone_Podest", new Vector3(0f, 4.5f, 17.25f), new Vector3(2.9f, 2.8f, 2.3f));
+            Zone("Zone_Podest", new Vector3(0f, 4.5f, 17.1f), new Vector3(2.9f, 2.9f, 2.8f));
             Zone("Zone_RaumOben", new Vector3(5f, 4.5f, 17.25f), new Vector3(6.8f, 2.8f, 4.3f));
 
             var door1 = MakeDoor("TuerUnten", new Vector3(1.5f, 1.1f, 4.5f), Vector3.right);
@@ -154,8 +154,8 @@ namespace Earshot.Voice
 
             var stair = Box(
                 "TreppenPortal",
-                new Vector3(0f, 1.6f, 13.75f),
-                new Vector3(2.8f, 3.1f, 4.4f),
+                new Vector3(0f, 3f, 16f),
+                new Vector3(2.4f, 0.8f, 1.2f),
                 stairMat,
                 geometry,
                 trigger: true);
@@ -163,7 +163,7 @@ namespace Earshot.Voice
             if (stairMesh != null) stairMesh.enabled = false;
             var stairPortal = stair.AddComponent<VoicePortal>();
             stairPortal.SetKind(VoicePortalKind.Stair);
-            stairPortal.SetTravelLength(6f);
+            stairPortal.SetTravelLength(7.5f);
             stairPortal.Openness = 1f;
 
             Speaker("TonUnten", new Vector3(6.4f, 1.35f, 5f), "raum-unten");

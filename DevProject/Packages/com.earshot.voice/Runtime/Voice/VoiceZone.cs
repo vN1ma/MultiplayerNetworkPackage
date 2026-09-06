@@ -102,6 +102,52 @@ namespace Earshot.Voice
             return best;
         }
 
+        /// <summary>
+        /// Zone an der Position, sonst die naechste in Reichweite. Treppen und
+        /// Tuerrahmen liegen oft knapp ausserhalb der Box — ohne diesen Fallback
+        /// faellt der Graph weg und es knallt auf Wand-Dumpf.
+        /// </summary>
+        public static VoiceZone FindAtOrNearest(
+            Vector3 position,
+            LayerMask layers,
+            Collider[] buffer,
+            float maxDistance = 3f)
+        {
+            var at = FindAt(position, layers, buffer);
+            if (at != null) return at;
+            return FindNearest(position, layers, buffer, maxDistance);
+        }
+
+        public static VoiceZone FindNearest(
+            Vector3 position,
+            LayerMask layers,
+            Collider[] buffer,
+            float maxDistance)
+        {
+            if (maxDistance <= 0f) return null;
+
+            int count = Physics.OverlapSphereNonAlloc(
+                position, maxDistance, buffer, layers, QueryTriggerInteraction.Collide);
+
+            VoiceZone best = null;
+            float bestDist = maxDistance;
+
+            for (int i = 0; i < count; i++)
+            {
+                var col = buffer[i];
+                if (col == null) continue;
+                var zone = col.GetComponentInParent<VoiceZone>();
+                if (zone == null) continue;
+
+                float dist = Vector3.Distance(position, col.ClosestPoint(position));
+                if (dist >= bestDist) continue;
+                bestDist = dist;
+                best = zone;
+            }
+
+            return best;
+        }
+
         private void OnDrawGizmosSelected()
         {
             var col = GetComponent<Collider>();
