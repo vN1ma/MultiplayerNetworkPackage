@@ -1,5 +1,9 @@
 # Earshot – Arbeitsauftrag
 
+> Veraltet für den aktuellen Stand. Produkt ist `com.earshot.voice` unter
+> `DevProject/Packages/com.earshot.voice/`. Aktueller Plan: `docs/earshot-voice-plan.md`.
+> Altes Coop-Paket aus dem eigenen Spiel entfernen: `docs/altes-earshot-entfernen.md`.
+
 Diese Datei ist die Arbeitsanweisung für die Fortsetzung von Earshot. Der Architektur-
 Hintergrund steht in `PLAN.md`; hier stehen nur konkrete, abgeschlossene Aufgaben.
 

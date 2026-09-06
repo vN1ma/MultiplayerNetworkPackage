@@ -1,5 +1,7 @@
 # Earshot — Plan fuer kuenftige Versionen
 
+> Veraltet als Arbeitsdatei. Aktueller Plan: `docs/earshot-voice-plan.md`.
+
 Stand: 16.08.2026 · Status: **nur Planung, nicht umsetzen**
 
 Diese Datei sagt, was nach der jetzigen Fassung noch gebaut werden muss, damit

@@ -10,6 +10,33 @@ Neueste Einträge oben. Format (siehe `.clinerules/01-workflow.md`):
 ```
 
 
+## [2026-09-06] – Team-Install per Git-URL (Weg A)
+- Spiel-Teams binden `com.earshot.voice` per Git-URL ein (`?path=/DevProject/Packages/com.earshot.voice`). Mitspieler brauchen dieses Repo nicht lokal. Nach Paket-Änderungen: hier pushen, im Spiel updaten, `packages-lock.json` mitcommitten.
+- Betroffene Dateien: `docs/altes-earshot-entfernen.md`, `README.md`, `docs/DECISIONS.md`
+
+## [2026-09-06] – Optionale Beispiel-Komponenten und EditMode-Tests
+- `ProxVoiceMuteHotkey` und `ProxVoiceConnectInScene` aus dem Export gesichtet und als optionale Komponenten ins Voice-Paket übernommen (`EarshotVoiceMuteHotkey`, `EarshotVoiceConnectInScene`). Beide liegen nicht auf dem Player und sind kein Pflichtschritt.
+- EditMode-Tests ohne Netzwerk: `VoiceRoster` (Register, Identity, Lookup, Unregister, Clear) und `VoiceSample` (Clamp, MoveTowards, logarithmische Frequenz). Test-Assembly unter `com.earshot.voice/Tests/EditMode/`, `com.unity.test-framework` im DevProject-Manifest.
+- Betroffene Dateien: `DevProject/Packages/com.earshot.voice/Runtime/Player/`, `DevProject/Packages/com.earshot.voice/Tests/`, `DevProject/Packages/manifest.json`, `docs/PROGRESS.md`
+
+## [2026-09-06] – Multiplayer aus dem Repo entfernt, DevProject ist Voice-only
+- `com.earshot.coop` vollständig gelöscht. Netcode, Multiplayer Play Mode, Multiplayer Tools und Multiplayer Center aus `DevProject/Packages/manifest.json` entfernt. `DevProject` bleibt das Unity-Testprojekt, jetzt ohne Multiplayer-Paket.
+- NGO-Adapter entfällt: das eigene Spiel räumt der Nutzer selbst auf. Anleitung: `docs/altes-earshot-entfernen.md` (Paket, Code, Komponenten, Assets, optionale Netcode-Reste, Abschluss-Check, danach erst `com.earshot.voice`).
+- `RadioModifier`-Sample nach `com.earshot.voice/Samples~/CustomVoiceModifier/` übernommen, damit die Phase-4-Vorlage nicht mit dem alten Paket verschwindet.
+- Betroffene Dateien: `DevProject/Packages/com.earshot.coop/` (gelöscht), `DevProject/Packages/manifest.json`, `DevProject/Packages/com.earshot.voice/Samples~/`, `docs/altes-earshot-entfernen.md`, `docs/PROGRESS.md`, `docs/earshot-voice-plan.md`, `docs/DECISIONS.md`, `README.md`
+
+## [2026-09-06] – com.earshot.voice als eigenständiges Paket angelegt (Phase 1, Kernumbau)
+- Neues Unity-Paket `DevProject/Packages/com.earshot.voice/` angelegt: eigene `package.json`/`.asmdef` ohne Abhängigkeit zu Netcode/Multiplayer, nur Vivox + Unity Authentication. Ablageort war eine offene Frage des Nutzers — Option A (Sibling-Paket neben `com.earshot.coop` unter `DevProject/Packages/`) gewählt, damit `com.earshot.voice` ein klar eigenständiges, direkt kompilier- und playtestbares Paket bleibt statt mit dem Multiplayer-Code vermischt zu sein.
+- Code aus `ProximityChatExport/` übernommen und auf den Namespace `Earshot.Voice` umgestellt: `IVoiceBackend`/`VivoxVoiceBackend`, `VoiceRuntime`/`VoiceEmitter`/`VoicePipeline`, `VoiceContext`/`VoiceProfile`/`VoiceZone`/`VoicePortal`/`VoiceTransparent`, `VoiceSessionLog`, alle vier `Modifiers/`. `ProxVoice` → `EarshotVoice`-Fassade, `ProxVoiceSettings` → `EarshotVoiceSettings`, `ProxLog` → `EarshotVoiceLog`.
+- Neues `IProximityVoicePlayer`-Interface (`PlayerId`, `HasIdentity`, `IsLocalPlayer`, `VoiceAnchor`, `Position`, `DisplayName`) plus generisches `VoiceRoster`-Register ersetzen `ProxVoiceRoster` und das coop-eigene `PlayerRegistry`.
+- Neue Hauptkomponente `EarshotProximityVoice`: Zero-Config (Standard `isLocalPlayer = true`, PlayerId füllt sich selbst über Unity Authentication) plus Advanced-Modus (`Bind()` für Netzwerk-Adapter).
+- Test-Werkzeuge `VoiceTestSpeaker` und `VoiceSessionRecorder` aus dem alten `Voice/`-Ordner übernommen und von `Coop`-Zuständen auf `EarshotVoice.IsConnected`/`VoiceRoster` umgestellt.
+- `com.earshot.voice` in `DevProject/Packages/manifest.json` als Dependency registriert.
+- `VoicePipeline.MeasureLineOfSight` entkoppelt: prüft jetzt `IProximityVoicePlayer` statt des alten `ProxVoicePlayer`, um Spieler-Collider von der Verdeckungsberechnung auszuschließen.
+- Beide bekannten Bugs (2-Sekunden-Delay, fehlende Muffle/Reverb/Distanz-Kurve) waren im Export-Stand bereits behoben und sind mit übernommen worden.
+- Offen: NGO-Adapter (`NetcodeVoicePlayer`), EditMode-Tests, Hörtest, danach Löschen von `ProximityChatExport/`.
+- Betroffene Dateien: `DevProject/Packages/com.earshot.voice/**` (neu), `DevProject/Packages/manifest.json`, `docs/PROGRESS.md`
+
 ## [2026-09-06] – Ordner-Rollen in Phase 1 dokumentiert
 - In `docs/earshot-voice-plan.md` und `docs/PROGRESS.md` festgehalten: Neuer Voice-Code nur unter `DevProject/Packages/com.earshot.voice/`; `DevProject` bleibt Unity-Testprojekt; `com.earshot.coop` bleibt Multiplayer-Heimat; `ProximityChatExport/` wird nach Übernahme und Hörtest gelöscht (Historie sichert den Stand, Commit `1e78b0f`).
 - Warum: Die Ablageorte und der Verbleib der Ordner waren bislang nur teilweise dokumentiert.

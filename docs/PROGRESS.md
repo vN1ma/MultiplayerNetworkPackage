@@ -3,13 +3,12 @@
 ## Aktuell
 
 **Phase 1 — Multiplayer abkoppeln (Kernumbau)**
-**Arbeitspaket 1.1: `IProximityVoicePlayer`-Interface definieren (`PlayerId`, `VoiceAnchor`, `Position`)**
 
-Status: bereit zur Umsetzung (noch nicht begonnen).
+Status: Dieses Repo ist jetzt ein Voice-only-DevProject. `com.earshot.voice` liegt unter `DevProject/Packages/com.earshot.voice/`. Das alte Multiplayer-Paket `com.earshot.coop` und die Netcode-/MPPM-Abhängigkeiten sind aus dem Repo entfernt. NGO-Adapter entfällt — das eigene Spielprojekt räumt der Nutzer selbst auf (Anleitung: `docs/altes-earshot-entfernen.md`), danach kommt nur noch das neue Paket hinein.
 
-Basis für Phase 1: neueste Voice-Iteration in `ProximityChatExport/` (siehe `docs/DECISIONS.md`); der `Voice/`-Ordner in `com.earshot.coop` ist älter und liefert nur die Test-Werkzeuge.
+Offen hier: Hörtest in Unity (`VoiceTestSpeaker` + Distanz/Wand/Tür), danach Löschen von `ProximityChatExport/`. Phase 2 bleibt beim Nutzer im eigenen Spiel.
 
-Danach (Reihenfolge gemäß `docs/earshot-voice-plan.md`): Arbeitspaket „Neues Package-Grundgerüst `com.earshot.voice` anlegen".
+Nächster Schritt: diesen Stand **pushen**, dann im Spiel per Git-URL einbinden (`docs/altes-earshot-entfernen.md` Abschnitt 8). Danach `EarshotProximityVoice` + `ConnectAsync` + `Bind`, dann Hörtest.
 
 ---
 
@@ -18,7 +17,7 @@ Danach (Reihenfolge gemäß `docs/earshot-voice-plan.md`): Arbeitspaket „Neues
 > Wer Earshot nutzen will, zieht **eine Komponente** (`EarshotProximityVoice`) auf seinen Player. Nicht mehr, nicht weniger.
 
 - [ ] Phase 1: `EarshotProximityVoice` ist die einzige Pflichtkomponente, alles andere (Backend, Registrierung, Adapter-Erkennung) läuft automatisch dahinter
-- [ ] Phase 2: Nach dem Umbau steht auf dem Player-Prefab **nur** `EarshotProximityVoice` (+ der unsichtbare Netcode-Adapter, falls dein eigenes Spiel Netcode nutzt) — keine `CoopPlayer`, kein manuelles Voice-Anchor-Ziehen
+- [ ] Phase 2: Im eigenen Spielprojekt ist `com.earshot.coop` restlos weg (Anleitung `docs/altes-earshot-entfernen.md`); auf dem Player steht danach nur `EarshotProximityVoice` — keine `CoopPlayer`
 - [ ] Phase 3: Zonen (`VoiceZone`) und Portale (`VoicePortal`) bleiben **optionale** Komponenten auf Wänden/Türen — der Graph funktioniert mit Fallback (`OcclusionModifier`) auch ganz ohne sie, ein Nutzer *kann* sie für bessere Akustik hinzufügen, muss aber nicht
 - [ ] Kein Schritt in irgendeiner Phase darf verlangen, dass der Nutzer Netzwerk-Code, Player-IDs oder Audio-Filter manuell verdrahtet
 
@@ -30,68 +29,44 @@ Wenn ein Arbeitspaket dazu führt, dass der Nutzer mehr als eine Komponente anfa
 
 Ziel: `com.earshot.voice` entsteht als eigenständiges Paket, das nichts von Netcode/NGO/UGS-Multiplayer weiß. Basis ist die neueste Voice-Iteration im Ordner `ProximityChatExport/` (netzwerk-unabhängig, mit `ProxVoice`-Fassade, `ProxVoiceRoster`/`ProxVoicePlayer`; siehe `docs/DECISIONS.md`, Eintrag „ProximityChatExport ist die neueste Voice-Iteration"). Der `Voice/`-Ordner in `com.earshot.coop` ist der ältere Stand und liefert nur noch die Test-Werkzeuge. Die zwei bekannten Bugs werden hier gleich mitgefixt, weil genau die betroffenen Klassen ohnehin umgebaut werden.
 
-Ordner-Rollen ab jetzt: Neuer Voice-Code entsteht **ausschließlich** unter `DevProject/Packages/com.earshot.voice/`. `DevProject` bleibt das Unity-Testprojekt (Szenen, Playtests, MPPM-Duo-Tests). `com.earshot.coop` bleibt die Multiplayer-Heimat (verliert in Phase 2 nur den `Voice/`-Ordner, bekommt den `NetcodeVoicePlayer`-Adapter). `ProximityChatExport/` ist nur Quelle der Übernahme und Referenz für die Anleitung (Phase 5) und wird danach gelöscht.
+Ordner-Rollen ab jetzt: Dieses Repo ist das Voice-DevProject. Neuer Voice-Code entsteht **ausschließlich** unter `DevProject/Packages/com.earshot.voice/`. `DevProject` ist das Unity-Testprojekt (Szenen, Playtests) ohne Multiplayer-Paket. `com.earshot.coop` ist aus diesem Repo entfernt — das eigene Spiel räumt der Nutzer selbst auf (`docs/altes-earshot-entfernen.md`). `ProximityChatExport/` ist nur Quelle der Übernahme und wird nach Hörtest gelöscht.
 
-- [ ] **1.1 — `IProximityVoicePlayer`-Interface definieren** (`PlayerId`, `VoiceAnchor`, `Position`) — `ProxVoicePlayer`/`ProxVoiceRoster` aus dem Export sind die funktionierende Vorstufe und werden dadurch abgelöst
-- [ ] Neues Package-Grundgerüst `com.earshot.voice` anlegen (eigene `.asmdef`, **keine** Abhängigkeit zu Netcode/Multiplayer-Services, nur Vivox + Unity Authentication) — entsteht unter `DevProject/Packages/`, damit das Unity-Projekt es direkt kompiliert und playtestet
-- [ ] Code aus `ProximityChatExport/` übernehmen (Namespace `Earshot.Proximity` → `Earshot.Voice` umbenennen):
-  - [ ] `IVoiceBackend`, `VivoxVoiceBackend`
-  - [ ] `VoiceRuntime`, `VoiceEmitter`, `VoicePipeline`
-  - [ ] `VoiceContext`, `VoiceProfile`, `VoiceZone`, `VoicePortal`, `VoiceTransparent`
-  - [ ] `VoiceSessionLog`
-  - [ ] `Modifiers/` (Distance, Occlusion, Portal, Zone) — das Radio-Modul liegt im alten Paket als Sample (`Samples~/CustomVoiceModifier`) und ist Vorlage für die Übertragungswege in Phase 4
-  - [ ] `ProxVoice` (statische Fassade) zur eigenständigen Voice-Fassade umbauen — Grundlage der `EarshotProximityVoice`-Komponente
-  - [ ] `ProxVoiceSettings` als Settings-Asset übernehmen, `ProxLog` ins `EarshotDebug`-Logging überführen
-  - [ ] `ProxVoiceMuteHotkey` und `ProxVoiceConnectInScene` als optionale Beispiel-Komponenten sichten (nicht Teil des Standardwegs)
-- [ ] Test-Werkzeuge aus dem älteren `Voice/`-Ordner des alten Pakets übernehmen: `VoiceTestSpeaker` (AudioClip-Testlautsprecher durch die echte Pipeline), `VoiceSessionRecorder`
-- [ ] Generisches Register bauen: `ProxVoiceRoster` und `PlayerRegistry` zusammenführen zu "`IProximityVoicePlayer` ↔ VivoxParticipant" (generisches `RegisterPlayer()` / `UnregisterPlayer()`)
-- [ ] Öffentliche Komponente `EarshotProximityVoice` bauen (einzige Pflichtkomponente auf dem Player)
-  - [ ] Zero-Config-Modus (Auto-Discovery aller `EarshotProximityVoice` in der Szene)
-  - [ ] Advanced-Modus (Player-ID, Voice-Anchor, Adapter manuell überschreibbar)
-- [ ] **Bug 1 — 2-Sekunden-Delay** beim Umbau von Roster/`VoiceRuntime` mitfixen:
-  - [ ] Timing-Messpunkte einbauen (Mic-Input → Vivox-Tap-Empfang → `VoiceEmitter.Apply()` → Wiedergabe)
-  - [ ] Prüfen: Delay im Vivox-Kanal selbst (Netzwerk-/Jitter-Buffer) oder in der eigenen Wartelisten-/Polling-Logik?
-  - [ ] Wartelisten-Timing ("Stimme vor Avatar" / "Avatar vor Stimme") ohne Verzögerung neu aufbauen
-- [ ] **Bug 2 — Muffle/Reverb/Distanz-Kurve werden nicht angewendet** beim Neuschreiben von `VoiceEmitter.Apply()` mitfixen:
-  - [ ] Sicherstellen, dass Filter-Komponenten (`AudioLowPassFilter`, `AudioHighPassFilter`, `AudioReverbFilter`) zur Laufzeit per `AddComponent` am Tap-Objekt existieren
-  - [ ] Sicherstellen, dass `Apply()` **alle** `VoiceSample`-Felder überträgt, nicht nur `Volume`
-  - [ ] Prüfen, ob Reverb/Muffle-Zweig an eine Bedingung geknüpft ist, die im Test nie zutrifft
-- [ ] NGO-Adapter im alten Paket bauen: `NetcodeVoicePlayer : MonoBehaviour, IProximityVoicePlayer` (Brücke zu deinem bestehenden `CoopPlayer`/`NetworkObject`) — hält dein aktuelles Spiel während des Umbaus lauffähig. ID-Sync nach dem `ProxVoiceNetcodeGlue`-Muster (Owner-schreibende `NetworkVariable`, siehe `docs/DECISIONS.md`)
-- [ ] Tests: EditMode-Tests für das generische Register ohne Netzwerk
+- [x] **1.1 — `IProximityVoicePlayer`-Interface definieren** (`PlayerId`, `VoiceAnchor`, `Position`) — `ProxVoicePlayer`/`ProxVoiceRoster` aus dem Export sind die funktionierende Vorstufe und werden dadurch abgelöst
+- [x] Neues Package-Grundgerüst `com.earshot.voice` anlegen (eigene `.asmdef`, **keine** Abhängigkeit zu Netcode/Multiplayer-Services, nur Vivox + Unity Authentication) — entstanden unter `DevProject/Packages/com.earshot.voice/`, damit das Unity-Projekt es direkt kompiliert und playtestet
+- [x] Code aus `ProximityChatExport/` übernehmen (Namespace `Earshot.Proximity` → `Earshot.Voice` umbenannt):
+  - [x] `IVoiceBackend`, `VivoxVoiceBackend`
+  - [x] `VoiceRuntime`, `VoiceEmitter`, `VoicePipeline`
+  - [x] `VoiceContext`, `VoiceProfile`, `VoiceZone`, `VoicePortal`, `VoiceTransparent`
+  - [x] `VoiceSessionLog`
+  - [x] `Modifiers/` (Distance, Occlusion, Portal, Zone) — das Radio-Modul liegt im alten Paket als Sample (`Samples~/CustomVoiceModifier`) und ist Vorlage für die Übertragungswege in Phase 4
+  - [x] `ProxVoice` (statische Fassade) zu `EarshotVoice` umgebaut — Grundlage der `EarshotProximityVoice`-Komponente
+  - [x] `ProxVoiceSettings` → `EarshotVoiceSettings` als Settings-Asset übernommen, `ProxLog` → `EarshotVoiceLog` überführt
+  - [x] `ProxVoiceMuteHotkey` / `ProxVoiceConnectInScene` gesichtet und als optionale Komponenten übernommen: `EarshotVoiceMuteHotkey`, `EarshotVoiceConnectInScene` (nicht auf den Player, nicht Teil des Standardwegs)
+- [x] Test-Werkzeuge aus dem älteren `Voice/`-Ordner des alten Pakets übernehmen: `VoiceTestSpeaker` (AudioClip-Testlautsprecher durch die echte Pipeline), `VoiceSessionRecorder` — beide auf `EarshotVoice`/`VoiceRoster` umgestellt (kein `Coop`-Zustand mehr, Auslöser ist jetzt `EarshotVoice.IsConnected`)
+- [x] Generisches Register gebaut: `VoiceRoster` löst `ProxVoiceRoster` und `PlayerRegistry` ab (`IProximityVoicePlayer` ↔ VivoxParticipant, `Register()`/`Unregister()`/`NotifyIdentityReady()`)
+- [x] Öffentliche Komponente `EarshotProximityVoice` gebaut (einzige Pflichtkomponente auf dem Player)
+  - [x] Zero-Config-Modus (Standard `isLocalPlayer = true`, PlayerId füllt sich selbst über `EarshotVoice.LocalPlayerId`, sobald Unity Authentication durch ist)
+  - [x] Advanced-Modus (`Bind()` für Netzwerk-Adapter, Inspector-Felder für Player-ID/Voice-Anchor manuell überschreibbar)
+- [x] **Bug 1 — 2-Sekunden-Delay**: Fix aus `ProximityChatExport/` übernommen (`tap.loop = true` in `VoiceEmitter.ConfigureTap()` + Selbstheilung in `KeepVivoxStreamAlive()`); keine gesonderten Timing-Messpunkte ergänzt, da der Export-Stand den Fehler bereits behoben hatte
+- [x] **Bug 2 — Muffle/Reverb/Distanz-Kurve**: Fix aus `ProximityChatExport/` übernommen (`VoiceEmitter.Apply()` überträgt Volume, SpatialBlend, LowPass/HighPass, Reverb; Filter-Komponenten entstehen in `AttachFilters()` per `AddComponent`)
+- [x] ~~NGO-Adapter `NetcodeVoicePlayer` im alten Paket~~ — **entfallen**. Nutzer entfernt `com.earshot.coop` selbst aus dem Spiel (`docs/altes-earshot-entfernen.md`) und bindet danach nur `com.earshot.voice` ein. `com.earshot.coop` ist aus diesem Repo gelöscht.
+- [x] Tests: EditMode-Tests für das generische Register ohne Netzwerk (`VoiceRosterTests`) plus `VoiceSample`-Mathematik (`Clamp`, `MoveTowards`)
 - [ ] Hörtest mit `VoiceTestSpeaker` + itsjessamess-Clip: Delay weg, alle drei Effekte (Muffle, Reverb, Distanz-Falloff) einzeln hörbar korrekt
 - [ ] Nach Übernahme und bestandenem Hörtest: `ProximityChatExport/` aus dem Repo löschen — der Stand bleibt über die Git-Historie gesichert (Commit `1e78b0f`); `ANLEITUNG.md` vorher auf Phase-5-Relevanz gesichtet
 
 ---
 
-## Phase 2 — Altlasten sauber aus dem aktuellen Projekt entfernen
+## Phase 2 — Altes Earshot im eigenen Spiel entfernen (Nutzer, nicht dieses Repo)
 
-Ziel: kein doppelter Multiplayer, keine doppelte Voice-Pipeline, keine verwaisten Assets, bevor Phase 3 beginnt.
+Ziel: im **Spielprojekt** kein `com.earshot.coop` mehr, keine doppelte Voice-Pipeline, keine Missing Scripts — danach erst `com.earshot.voice` einfügen. Schritt-für-Schritt: `docs/altes-earshot-entfernen.md`.
 
-- [ ] Inventur: alle Stellen im Spielprojekt auflisten, die `com.earshot.coop` referenzieren
-  - [ ] Player-Prefab: `NetworkObject`, `CoopPlayer`, `NetworkTransform`, `CoopPlayerInteractor`
-  - [ ] Szene: `CoopBootstrap`, `CoopQuickMenu`, `CoopPauseMenu`, `NetworkManager`
-  - [ ] Assets: `Assets/Resources/EarshotSettings.asset`, altes VoiceProfile unter `Assets/Earshot/`
-- [ ] Neues Paket (`com.earshot.voice`) zusätzlich installieren, **nicht** das alte sofort löschen (kurze Übergangsphase mit beiden Paketen)
-- [ ] Player-Prefab umstellen:
-  - [ ] `NetcodeVoicePlayer`-Adapter (aus Phase 1) hinzufügen
-  - [ ] `EarshotProximityVoice` als neue einzige Voice-Komponente hinzufügen
-  - [ ] Alte direkte Voice-Bindung auf `CoopPlayer` deaktivieren
-- [ ] Doppelte Audio-Pfade ausschließen (wichtigster Schritt gegen Rückstände):
-  - [ ] `Voice/`-Ordner **im alten Paket** (`com.earshot.coop`) vollständig löschen
-  - [ ] Voice-Init-Aufrufe aus `Coop.cs` / `CoopServices.cs` entfernen (übernimmt jetzt `com.earshot.voice`)
-  - [ ] Sicherstellen: nur noch ein `VoiceRuntime`, ein Vivox-Login-Pfad
-- [ ] Alte Assets bereinigen:
-  - [ ] `EarshotSettings.asset` migrieren oder durch neues Settings-Asset ersetzen
-  - [ ] Altes `VoiceProfile`-Asset migrieren oder neu anlegen
-  - [ ] Szenenreferenzen auf gelöschte Komponenten prüfen (keine "Missing Script"-Warnungen)
-- [ ] Repo/Doku aktualisieren:
-  - [ ] README/Install-Anleitung auf die neue Git-URL (`?path=/.../com.earshot.voice`) umstellen
-  - [ ] Alte kombinierte Install-Anleitung als veraltet markieren
-- [ ] Abschluss-Check (Preflight):
-  - [ ] Kein doppelter `AudioListener`
-  - [ ] Kein doppelter Vivox-Login
-  - [ ] Keine "Missing Script"-Referenzen
-  - [ ] Keine verwaisten Assets im Projekt
+In diesem Repo ist das Multiplayer-Paket bereits weg. Die Checkliste unten gilt für das eigene Unity-Spiel:
+
+- [x] Inventur / altes Paket im Spielprojekt entfernt (Nutzer, 2026-09-06)
+- [ ] Diesen Repo-Stand pushen, dann im Spiel Git-URL einbinden (Weg A, siehe `docs/DECISIONS.md`)
+- [ ] Player-Prefab: `EarshotProximityVoice`
+- [ ] `EarshotVoice.ConnectAsync` am Match-Start, `Bind` auf lokal/remote
+- [ ] Settings-Asset unter `Assets/Resources/EarshotVoiceSettings.asset`
 
 ---
 

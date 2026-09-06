@@ -18,9 +18,8 @@ sysinfo.txt
 crashlytics-build.properties
 
 # ---------------------------------------------------------------------------
-# Local test project (the playtest house, spawned assets, UGS-linked settings).
-# Rebuild anytime with Tools > Earshot > Testraum bauen after installing the package.
-# The shipped product is DevProject/Packages/com.earshot.coop only.
+# Local Unity test project (scenes, spawned assets, UGS-linked settings).
+# The shipped product is DevProject/Packages/com.earshot.voice only.
 # ---------------------------------------------------------------------------
 DevProject/Assets/
 DevProject/ProjectSettings/

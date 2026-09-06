@@ -10,6 +10,16 @@ Auswirkung: welches Arbeitspaket/welche Datei betroffen ist
 ```
 
 
+## [2026-09-06] Spiel-Team holt com.earshot.voice per Git-URL (Weg A)
+Kontext: Mehrere Leute arbeiten am Spiel über Git. Add-package-from-disk zeigt auf einen lokalen Pfad — Mitspieler hätten das Paket nicht, Änderungen im Package-Cache wären verloren.
+Entscheidung/Fakt: Dieses Repo bleibt die Quelle. Das Spiel trägt in `Packages/manifest.json` die Git-URL mit `?path=/DevProject/Packages/com.earshot.voice` ein. Mitspieler brauchen nur das Spiel-Repo. Nach jeder Paket-Änderung hier: commit + push, im Spiel Package Manager Update, neuen `packages-lock.json`-Hash mitcommitten.
+Auswirkung: Install-Anleitung in `docs/altes-earshot-entfernen.md` Abschnitt 8 und README; Disk-Pfad nur noch zum lokalen Alleine-Test vor dem ersten Push.
+
+## [2026-09-06] Multiplayer fliegt aus diesem Repo, Spiel räumt der Nutzer selbst
+Kontext: Nutzer will das alte Earshot zuerst selbst aus dem eigenen Unity-Spiel entfernen und danach nur `com.earshot.voice` einfügen. DevProject soll das Voice-Testprojekt bleiben, ohne `com.earshot.coop`.
+Entscheidung/Fakt: `com.earshot.coop` und die Netcode-/MPPM-Abhängigkeiten sind aus diesem Repo gelöscht. Der geplante `NetcodeVoicePlayer`-Adapter entfällt. Phase 2 ist die Nutzer-Anleitung `docs/altes-earshot-entfernen.md` (erst altes Paket restlos weg, dann neues einbinden — keine Übergangsphase mit beiden Paketen).
+Auswirkung: Kein Multiplayer-Code mehr unter `DevProject/Packages/`. Install-URL zeigt auf `com.earshot.voice`.
+
 ## [2026-09-06] ProximityChatExport ist die neueste Voice-Iteration
 Kontext: Zeitstempel- und Inhaltsvergleich Export-Ordner vs. DevProject (21.08. 23:32–23:34 vs. 23:22; `ProxVoice.cs` zuletzt am 06.09. bearbeitet), bestätigt durch Nutzer
 Entscheidung/Fakt: `ProximityChatExport/` enthält die zuletzt bearbeitete Standalone-Fassung der Voice-Schicht ohne Netcode-Abhängigkeit (statische `ProxVoice`-Fassade, `ProxVoiceRoster`/`ProxVoicePlayer`, erweitertes Session-Logging). `DevProject/Packages/com.earshot.coop/Runtime/Voice/` ist der ältere Stand und bleibt Referenz für die Test-Werkzeuge (`VoiceTestSpeaker`, `VoiceSessionRecorder`, `MppmDuoTester`).

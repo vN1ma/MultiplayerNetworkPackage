@@ -1,5 +1,9 @@
 # Earshot — Plug-and-Play Multiplayer + Proximity Voice für Unity 6
 
+> Veraltet für den aktuellen Stand. Multiplayer (`com.earshot.coop`) ist aus diesem
+> Repo entfernt. Weiterarbeiten: `docs/earshot-voice-plan.md` und
+> `docs/altes-earshot-entfernen.md`.
+
 Stand: 14.08.2026 · Status: Planung abgeschlossen, Umsetzung startet
 
 > **Earshot** — "to be within earshot" heißt "in Hörweite sein". Genau darum geht es.

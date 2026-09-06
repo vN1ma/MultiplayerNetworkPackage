@@ -1,0 +1,30 @@
+{
+  "name": "com.earshot.voice",
+  "version": "0.1.0",
+  "displayName": "Earshot Voice",
+  "description": "Eigenstaendiger Proximity Voice Chat fuer Unity 6. Vivox uebertraegt die Stimme, Entfernung, Verdeckung, Tueren und Raeume wirken lokal. Keine Abhaengigkeit zu Netcode oder einem bestimmten Multiplayer-Framework - ein Adapter bindet die eigene Spieler-Identitaet an.",
+  "unity": "6000.0",
+  "keywords": [
+    "voice chat",
+    "proximity chat",
+    "vivox"
+  ],
+  "author": {
+    "name": "Earshot"
+  },
+  "dependencies": {
+    "com.unity.services.core": "1.14.0",
+    "com.unity.services.authentication": "3.6.0",
+    "com.unity.services.vivox": "16.10.0"
+  },
+  "testables": [
+    "Earshot.Voice.Tests.EditMode"
+  ],
+  "samples": [
+    {
+      "displayName": "Custom Voice Modifier",
+      "description": "Beispiel fuer ein eigenes Voice-Modul: ein Funkgeraet, das Distanz und Waende bewusst aushebelt.",
+      "path": "Samples~/CustomVoiceModifier"
+    }
+  ]
+}
