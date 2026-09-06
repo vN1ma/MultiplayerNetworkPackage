@@ -119,6 +119,7 @@ namespace Earshot.Voice
             context.ApparentPosition = speakerPosition;
 
             TryApplyGraph(ref context);
+            FillApparentDirection(ref context);
 
             return context;
         }
@@ -130,9 +131,17 @@ namespace Earshot.Voice
         /// </summary>
         private void TryApplyGraph(ref VoiceContext context)
         {
-            if (context.OcclusionAmount <= 0f) return;
-            if (context.SameZone) return;
-            if (context.ListenerZone == null || context.SpeakerZone == null) return;
+            if (context.OcclusionAmount <= 0f || context.SameZone ||
+                context.ListenerZone == null || context.SpeakerZone == null)
+            {
+                VoiceGraph.RememberPath(
+                    context.ListenerPosition,
+                    context.SpeakerPosition,
+                    null,
+                    context.HearingDistance,
+                    usedGraph: false);
+                return;
+            }
 
             if (!VoiceGraph.TryFindPath(
                     context.ListenerZone,
@@ -140,6 +149,12 @@ namespace Earshot.Voice
                     graphPortals,
                     out _))
             {
+                VoiceGraph.RememberPath(
+                    context.ListenerPosition,
+                    context.SpeakerPosition,
+                    null,
+                    context.HearingDistance,
+                    usedGraph: false);
                 return;
             }
 
@@ -148,34 +163,55 @@ namespace Earshot.Voice
 
             float length = 0f;
             float closed = 0f;
-            Vector3 previous = context.ListenerPosition;
 
             for (int i = 0; i < graphPortals.Count; i++)
             {
                 var portal = graphPortals[i];
+                Vector3 next = i + 1 < graphPortals.Count
+                    ? VoiceGraph.PortalPosition(graphPortals[i + 1])
+                    : context.SpeakerPosition;
                 Vector3 at = VoiceGraph.PortalPosition(portal);
-                length += Vector3.Distance(previous, at);
-                previous = at;
+
+                if (i == 0)
+                {
+                    length += Vector3.Distance(context.ListenerPosition, at);
+                }
+
+                length += VoiceGraph.HopLength(at, next, portal);
                 if (portal != null) closed += 1f - portal.Openness;
             }
 
-            length += Vector3.Distance(previous, context.SpeakerPosition);
+            if (graphPortals.Count == 0)
+            {
+                length = context.Distance;
+            }
+
             context.HearingDistance = length;
             context.GraphClosedness = Mathf.Clamp01(closed);
             context.ApparentPosition = graphPortals.Count > 0
                 ? VoiceGraph.PortalPosition(graphPortals[0])
                 : context.SpeakerPosition;
+
+            VoiceGraph.RememberPath(
+                context.ListenerPosition,
+                context.SpeakerPosition,
+                graphPortals,
+                context.HearingDistance,
+                usedGraph: true);
+        }
+
+        private static void FillApparentDirection(ref VoiceContext context)
+        {
+            Vector3 to = context.ApparentPosition - context.ListenerPosition;
+            context.ApparentDirection = to.sqrMagnitude > 0.0001f
+                ? to.normalized
+                : Vector3.forward;
         }
 
         /// <summary>
-        /// Zaehlt, was zwischen den beiden steht.
-        /// <para>
-        /// Bekannte Grenze dieser Fassung: Gezaehlt wird ausschliesslich auf der geraden
-        /// Linie. Schall, der um eine Ecke durch eine offene Tuer laeuft, wird deshalb als
-        /// blockiert gewertet - zwei Spieler in benachbarten Zimmern klingen wie durch die
-        /// Wand, obwohl der Flur sie akustisch verbinden wuerde. Der Raum-Portal-Graph in
-        /// Phase 3 loest genau das ab.
-        /// </para>
+        /// Zaehlt, was zwischen den beiden steht. Neben der direkten Linie laufen
+        /// kurze Offset-Strahlen, damit ein Rahmenstreifschuss neben einer offenen
+        /// Tuer nicht wie eine volle Wand zaehlt.
         /// </summary>
         private void MeasureLineOfSight(VoiceProfile profile, ref VoiceContext context)
         {
@@ -190,9 +226,6 @@ namespace Earshot.Voice
 
             direction /= distance;
 
-            // Ausserhalb der eigenen Kapsel starten. Ein Strahl, der im CharacterController
-            // beginnt, liefert in Unity oft keine weiteren Treffer - dann klingt jede Wand
-            // wie freie Sicht.
             const float StartOffset = 0.45f;
             if (distance <= StartOffset)
             {
@@ -203,6 +236,43 @@ namespace Earshot.Voice
             Vector3 origin = context.ListenerPosition + direction * StartOffset;
             float remaining = distance - StartOffset;
 
+            Vector3 right = Vector3.Cross(direction, Vector3.up);
+            if (right.sqrMagnitude < 0.0001f) right = Vector3.Cross(direction, Vector3.right);
+            right.Normalize();
+            Vector3 up = Vector3.Cross(right, direction);
+
+            float bestOcclusion = 1f;
+            float mostOpen = 0f;
+            VoicePortal mostOpenPortal = null;
+
+            CastOcclusionRay(origin, direction, remaining, profile, ref bestOcclusion, ref mostOpen, ref mostOpenPortal);
+            CastOcclusionRay(origin + right * 0.35f, direction, remaining, profile, ref bestOcclusion, ref mostOpen, ref mostOpenPortal);
+            CastOcclusionRay(origin - right * 0.35f, direction, remaining, profile, ref bestOcclusion, ref mostOpen, ref mostOpenPortal);
+            CastOcclusionRay(origin + up * 0.25f, direction, remaining, profile, ref bestOcclusion, ref mostOpen, ref mostOpenPortal);
+            CastOcclusionRay(origin - up * 0.25f, direction, remaining, profile, ref bestOcclusion, ref mostOpen, ref mostOpenPortal);
+
+            if (mostOpenPortal != null)
+            {
+                context.HasPortal = true;
+                context.Portal = mostOpenPortal;
+                context.PortalOpenness = mostOpen;
+                context.OcclusionAmount = 0f;
+            }
+            else
+            {
+                context.OcclusionAmount = bestOcclusion;
+            }
+        }
+
+        private void CastOcclusionRay(
+            Vector3 origin,
+            Vector3 direction,
+            float remaining,
+            VoiceProfile profile,
+            ref float bestOcclusion,
+            ref float mostOpen,
+            ref VoicePortal mostOpenPortal)
+        {
             int count = Physics.SphereCastNonAlloc(
                 origin,
                 0.08f,
@@ -213,16 +283,12 @@ namespace Earshot.Voice
                 QueryTriggerInteraction.Ignore);
 
             int solidHits = 0;
-            float mostOpen = 0f;
-            VoicePortal mostOpenPortal = null;
 
             for (int i = 0; i < count; i++)
             {
                 var hitCollider = hitBuffer[i].collider;
                 if (hitCollider == null) continue;
 
-                // Spielerkapseln zaehlen nie als Wand - weder die eigene noch die
-                // des Sprechers. Sonst ist jede Stimme sofort "hinter einer Mauer".
                 if (hitCollider is CharacterController ||
                     hitCollider.GetComponentInParent<CharacterController>() != null ||
                     hitCollider.GetComponentInParent<IProximityVoicePlayer>() != null ||
@@ -232,39 +298,22 @@ namespace Earshot.Voice
                 }
 
                 var portal = hitCollider.GetComponentInParent<VoicePortal>();
-
                 if (portal != null)
                 {
-                    // Portale zaehlen nicht als Wand. Ob und wie viel sie durchlassen,
-                    // entscheidet das Portal-Modul anhand der Oeffnung.
-                    context.HasPortal = true;
-
-                    // Bei mehreren Tueren auf der Linie gewinnt die offenste: Schall nimmt
-                    // den leichtesten Weg, er addiert keine Hindernisse.
                     if (mostOpenPortal == null || portal.Openness > mostOpen)
                     {
                         mostOpen = portal.Openness;
                         mostOpenPortal = portal;
                     }
+
                     continue;
                 }
 
                 solidHits++;
             }
 
-            if (context.HasPortal)
-            {
-                context.Portal = mostOpenPortal;
-                context.PortalOpenness = mostOpen;
-                // Der akustische Weg ist die Tuer. Rahmen und Sturz daneben
-                // nicht extra als volle Wand draufrechnen - sonst ist hinter
-                // einer geschlossenen Tuer gar nichts mehr zu hoeren.
-                context.OcclusionAmount = 0f;
-            }
-            else
-            {
-                context.OcclusionAmount = Mathf.Clamp01(solidHits / FullOcclusionHits);
-            }
+            float amount = Mathf.Clamp01(solidHits / FullOcclusionHits);
+            if (amount < bestOcclusion) bestOcclusion = amount;
         }
 
         /// <summary>

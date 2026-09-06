@@ -33,6 +33,24 @@ namespace Earshot.Voice
         private AudioClip clip;
         private float nextSafetyRecheck;
 
+        public bool IsPlaying => emitter != null && isActiveAndEnabled;
+
+        public void Toggle()
+        {
+            enabled = !enabled;
+        }
+
+        public void SetPlaying(bool playing)
+        {
+            enabled = playing;
+        }
+
+        public void SetSpeakerId(string id)
+        {
+            if (string.IsNullOrWhiteSpace(id)) return;
+            speakerId = id;
+        }
+
         private void OnEnable()
         {
             // Ausserhalb des Play-Modus (z.B. waehrend ein Editor-Skript die Szene baut)

@@ -42,6 +42,12 @@ namespace Earshot.Voice
         public Vector3 ApparentPosition;
 
         /// <summary>
+        /// Richtung vom Ohr zur scheinbaren Quelle. Bei Graph-Weg aus der Tuer/Ecke,
+        /// nicht durch die Wand.
+        /// </summary>
+        public Vector3 ApparentDirection;
+
+        /// <summary>
         /// 0 = alle Tueren auf dem Graph-Weg offen, 1 = alle zu.
         /// Mehrere geschlossene Tueren addieren sich, geclippt auf 1.
         /// </summary>

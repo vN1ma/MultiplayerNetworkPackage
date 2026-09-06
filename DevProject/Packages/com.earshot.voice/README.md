@@ -28,5 +28,10 @@ das Paket updaten und `packages-lock.json` mitcommitten.
 Die Komponente tritt dem Sprachkanal selbst bei, erkennt lokal/remote an Netcode/Mirror/Photon
 und haengt Stimmen an die Avatare. Vivox und Authentication muessen im Cloud-Projekt aktiv sein.
 
-Optional, nicht auf den Player: `Earshot Voice/Mute Hotkey`. Settings-Asset nur, wenn ihr
-Defaults aendern wollt.
+Hoertest: Menue `Earshot Voice / Create Hearing Test Scene` oder die Szene
+`Scenes/HearingTest.unity` oeffnen und Play. WASD, Maus, E Ton, F Tuer.
+
+Optional, nicht auf den Player: `Earshot Voice/Mute Hotkey`. Raeume und Tueren:
+`VoiceZone` / `VoicePortal` (Treppe = Kind Stair + Lauflaenge). Menue
+`Earshot Voice/Authoring` backt den Graph und zeigt Warnungen. Ohne Zonen gilt
+weiter die Sichtlinie.

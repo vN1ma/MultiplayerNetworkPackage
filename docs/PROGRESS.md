@@ -2,11 +2,11 @@
 
 ## Aktuell
 
-**Phase 3 — Raum-Portal-Graph**
+**Phase 3 fertig — Raum-Portal-Graph**
 
-Status: `EarshotProximityVoice` verbindet und erkennt lokal/remote selbst. Im Spiel: Paket updaten (push + Package Manager), dann zu zweit in die Lobby — ohne `ConnectAsync`/`Bind`.
+Status: Treppen, Richtung aus der Tuer, Offset-Faecher und Autorentools sind drin. Zonen/Portale bleiben optional.
 
-Nächster Schritt hier: Phase 3 Graph (Treppen, Richtung, Autorentools).
+Nächster Schritt: Phase 4 Walkie-Talkie. Hoertest: Szene `HearingTest` im Paket oder Menue `Earshot Voice / Create Hearing Test Scene`.
 
 ---
 
@@ -16,7 +16,7 @@ Nächster Schritt hier: Phase 3 Graph (Treppen, Richtung, Autorentools).
 
 - [x] Phase 1: `EarshotProximityVoice` ist die einzige Pflichtkomponente, alles andere (Backend, Registrierung) läuft automatisch dahinter
 - [x] Phase 2: Im eigenen Spielprojekt ist `com.earshot.coop` restlos weg; auf dem Player steht `EarshotProximityVoice` — keine `CoopPlayer`
-- [ ] Phase 3: Zonen (`VoiceZone`) und Portale (`VoicePortal`) bleiben **optionale** Komponenten auf Wänden/Türen — der Graph funktioniert mit Fallback (`OcclusionModifier`) auch ganz ohne sie, ein Nutzer *kann* sie für bessere Akustik hinzufügen, muss aber nicht
+- [x] Phase 3: Zonen (`VoiceZone`) und Portale (`VoicePortal`) bleiben **optionale** Komponenten auf Wänden/Türen — der Graph funktioniert mit Fallback (`OcclusionModifier`) auch ganz ohne sie, ein Nutzer *kann* sie für bessere Akustik hinzufügen, muss aber nicht
 - [x] Kein Schritt in irgendeiner Phase darf verlangen, dass der Nutzer Netzwerk-Code, Player-IDs oder Audio-Filter manuell verdrahtet
 
 Wenn ein Arbeitspaket dazu führt, dass der Nutzer mehr als eine Komponente anfassen oder ein Feld manuell setzen muss, gehört das in den Advanced-Modus (optional, versteckt) — nicht in den Standardweg.
@@ -82,25 +82,25 @@ Läuft jetzt vollständig innerhalb von `com.earshot.voice`, komplett multiplaye
   - [x] Geschlossen: Kante teuer (+12 m) plus Dumpf im `GraphModifier`, nicht automatisch stumm
   - [x] Mehrere Türen hintereinander: `GraphClosedness` addiert sich
   - [x] Tür öffnet sich während des Sprechens: weicher Übergang über die bestehende Profil-Glaettung
-- [ ] Treppenhaus/Etagen:
-  - [ ] Treppenlauf als Portal zwischen zwei Zonen
-  - [ ] Vertikale vertikale Luftlinie durch Decke zählt nur als Occlusion, wenn kein Treppen-Portal verbindet
-  - [ ] Länge der Treppe geht in `AcousticDistance` ein
-- [ ] Richtung/Beugung:
-  - [ ] `ApparentDirection`: Stimme kommt hörbar aus der offenen Tür/Flurecke, nicht durch die Wand
-  - [ ] Mehrere kurze Rays / Offset-Fächer für "halb hinter der Kante"
-- [ ] Autorentools:
-  - [ ] Editor-Tool: Zonen aus Collidern erzeugen
-  - [ ] Portale an Tür-Prefabs automatisch erkennen
-  - [ ] Bake-Button: Graph im Editor vorberechnen
-  - [ ] Gizmos: Räume, Kanten, gewählter Schallweg
-  - [ ] Preflight-Warnungen: "Zone ohne Portal", "Portal ohne zwei Zonen", "Spieler außerhalb jeder Zone"
-- [ ] Tests:
-  - [ ] L-Flur, Tür offen: Graph-Weg leiser als freie Sicht, aber viel lauter als durch die Wand
-  - [ ] Dieselbe Tür zu: dumpf, Volumen im ClosedVolume-Bereich
-  - [ ] Zwei Etagen, nur Decke dazwischen: stark gedämpft
-  - [ ] Zwei Etagen plus Treppen-Portal: Distanz ≈ Treppenlänge, kein Decken-Cut
-  - [ ] Rahmenstreifschuss bei offener Tür: nicht voll occluded
+- [x] Treppenhaus/Etagen:
+  - [x] Treppenlauf als Portal zwischen zwei Zonen (`VoicePortalKind.Stair`, Probe nach oben/unten)
+  - [x] Vertikale Luftlinie durch Decke zählt nur als Occlusion, wenn kein Treppen-Portal verbindet
+  - [x] Länge der Treppe geht in `HearingDistance` ein (`TravelLength`)
+- [x] Richtung/Beugung:
+  - [x] `ApparentDirection`: Stimme kommt hörbar aus der offenen Tür/Flurecke, nicht durch die Wand
+  - [x] Mehrere kurze Rays / Offset-Fächer für "halb hinter der Kante"
+- [x] Autorentools:
+  - [x] Editor-Tool: Zonen aus Collidern erzeugen (`Earshot Voice/Authoring`)
+  - [x] Portale an Tür-Prefabs automatisch erkennen
+  - [x] Bake-Button: Graph im Editor vorberechnen
+  - [x] Gizmos: Räume, Kanten, gewählter Schallweg
+  - [x] Preflight-Warnungen: "Zone ohne Portal", "Portal ohne zwei Zonen", "Spieler außerhalb jeder Zone"
+- [x] Tests:
+  - [x] L-Flur, Tür offen: Graph-Weg leiser als freie Sicht, aber viel lauter als durch die Wand
+  - [x] Dieselbe Tür zu: dumpf, Volumen im ClosedVolume-Bereich
+  - [x] Zwei Etagen, nur Decke dazwischen: stark gedämpft
+  - [x] Zwei Etagen plus Treppen-Portal: Distanz ≈ Treppenlänge, kein Decken-Cut
+  - [x] Rahmenstreifschuss bei offener Tür: nicht voll occluded
 
 ---
 

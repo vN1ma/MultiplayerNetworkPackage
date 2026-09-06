@@ -10,6 +10,15 @@ Neueste Einträge oben. Format (siehe `.clinerules/01-workflow.md`):
 ```
 
 
+## [2026-09-06] – Hoertest-Szene (Flur, Tuer, Treppe)
+- Geschlossene Testetage: Flur, Raum rechts mit Tuer und Ton, Treppe nach oben, oben dasselbe. Waende ueberlappen an den Ecken. E schaltet den naechsten Ton, F die naechste Tuer. Menue `Earshot Voice / Create Hearing Test Scene` oder Szene `Scenes/HearingTest.unity`.
+- Betroffene Dateien: `Runtime/HearingTest/`, `Scenes/HearingTest.unity`, `Editor/HearingTestSceneBuilder.cs`
+
+## [2026-09-06] – Phase 3 Graph fertig (Treppen, Richtung, Authoring)
+- Treppen sind Portale zwischen Etagen (`VoicePortalKind.Stair`, `TravelLength`). Luftlinie durch die Decke bleibt Occlusion, solange keine Treppe verbindet. Stimme kommt aus der ersten Tuer/Ecke; Offset-Strahlen verhindern den Rahmenstreifschuss.
+- Optional: `Earshot Voice/Authoring` erzeugt Zonen, erkennt Tueren, backt den Graph und zeigt Preflight plus Gizmos.
+- Betroffene Dateien: `VoicePortal.cs`, `VoiceGraph.cs`, `VoicePipeline.cs`, `Editor/`, `VoicePipelineGraphTests.cs`
+
 ## [2026-09-06] – Eine Komponente verbindet und ordnet Stimmen selbst
 - `EarshotProximityVoice` tritt dem Sprachkanal automatisch bei, erkennt lokal/remote an Netcode/Mirror/Photon/FishNet (ohne diese Assemblies zu referenzieren) und haengt Vivox-Stimmen an die Avatare. `ConnectAsync`/`Bind` sind kein Pflichtschritt mehr.
 - Kanal: Inspector-Feld, sonst Unity-Lobby-ID, sonst Settings, sonst `earshot`.

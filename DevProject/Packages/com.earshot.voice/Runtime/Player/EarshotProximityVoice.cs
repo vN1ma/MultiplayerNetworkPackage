@@ -34,6 +34,10 @@ namespace Earshot.Voice
         [Tooltip("Leer = Unity-Lobby-ID, sonst der Kanal aus den Settings, sonst 'earshot'. Nur setzen, wenn ihr einen festen Kanal wollt.")]
         private string channelName;
 
+        [SerializeField]
+        [Tooltip("Aus = nur zuhoeren (Hoertest), kein Vivox-Kanal.")]
+        private bool joinVoiceChannel = true;
+
         private bool waitingForLocalIdentity;
         private bool identityLocked;
         private bool startedSession;
@@ -64,6 +68,12 @@ namespace Earshot.Voice
         public void SetVoiceAnchor(Transform anchor)
         {
             voiceAnchor = anchor;
+        }
+
+        /// <summary>Hoertest: kein Vivox, nur lokaler Pipeline-Klang.</summary>
+        public void SetJoinVoiceChannel(bool value)
+        {
+            joinVoiceChannel = value;
         }
 
         private void Reset()
@@ -172,7 +182,7 @@ namespace Earshot.Voice
         {
             waitingForLocalIdentity = true;
 
-            if (!EarshotVoiceSettings.Instance.AutoConnect)
+            if (!joinVoiceChannel || !EarshotVoiceSettings.Instance.AutoConnect)
             {
                 await WaitForLocalIdentityAsync(id);
                 return;

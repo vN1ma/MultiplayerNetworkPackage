@@ -20,3 +20,5 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 - Optionale Komponenten `EarshotVoiceMuteHotkey` und `EarshotVoiceConnectInScene`
 - EditMode-Tests fuer `VoiceRoster` und `VoiceSample`
 - Raum-Portal-Graph: Dijkstra durch `VoiceZone`/`VoicePortal`, `GraphModifier`
+- Treppen-Portale, `ApparentDirection`, Offset-Faecher, Authoring-Fenster, Graph-EditMode-Tests
+- Hoertest-Szene: geschlossener Flur, Tuer, Treppe, Ton mit E, Tuer mit F

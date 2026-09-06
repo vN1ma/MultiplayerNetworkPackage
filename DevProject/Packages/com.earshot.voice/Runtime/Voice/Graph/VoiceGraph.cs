@@ -13,14 +13,59 @@ namespace Earshot.Voice
         public const float ClosedLengthPenalty = 12f;
         public const float OpennessCheapThreshold = 0.5f;
 
+        public readonly struct Connection
+        {
+            public Connection(VoiceZone a, VoiceZone b, VoicePortal portal, float weight)
+            {
+                A = a;
+                B = b;
+                Portal = portal;
+                Weight = weight;
+            }
+
+            public VoiceZone A { get; }
+            public VoiceZone B { get; }
+            public VoicePortal Portal { get; }
+            public float Weight { get; }
+        }
+
+        public readonly struct DebugPath
+        {
+            public DebugPath(
+                Vector3 from,
+                Vector3 to,
+                IReadOnlyList<Vector3> waypoints,
+                float hearingDistance,
+                bool usedGraph)
+            {
+                From = from;
+                To = to;
+                Waypoints = waypoints;
+                HearingDistance = hearingDistance;
+                UsedGraph = usedGraph;
+            }
+
+            public Vector3 From { get; }
+            public Vector3 To { get; }
+            public IReadOnlyList<Vector3> Waypoints { get; }
+            public float HearingDistance { get; }
+            public bool UsedGraph { get; }
+        }
+
         private static readonly VoiceGraphSearch search = new VoiceGraphSearch();
         private static readonly Dictionary<int, VoicePortal> portalsByKey =
             new Dictionary<int, VoicePortal>();
+        private static readonly List<Connection> connections = new List<Connection>(32);
         private static readonly List<int> pathBuffer = new List<int>(8);
+        private static readonly List<Vector3> debugWaypoints = new List<Vector3>(8);
+        private static DebugPath lastPath;
         private static bool dirty = true;
         private static int nodeCount;
 
         public static int NodeCount => nodeCount;
+        public static int ConnectionCount => connections.Count;
+        public static IReadOnlyList<Connection> Connections => connections;
+        public static DebugPath LastPath => lastPath;
 
         public static void MarkDirty()
         {
@@ -38,6 +83,7 @@ namespace Earshot.Voice
             dirty = false;
             search.Clear();
             portalsByKey.Clear();
+            connections.Clear();
             nodeCount = 0;
 
 #if UNITY_6000_5_OR_NEWER
@@ -76,6 +122,7 @@ namespace Earshot.Voice
                 }
 
                 search.AddUndirectedEdge(a.GetInstanceID(), b.GetInstanceID(), weight, key);
+                connections.Add(new Connection(a, b, portal, weight));
             }
         }
 
@@ -112,6 +159,89 @@ namespace Earshot.Voice
             return true;
         }
 
+        public static void RememberPath(
+            Vector3 from,
+            Vector3 to,
+            List<VoicePortal> portals,
+            float hearingDistance,
+            bool usedGraph)
+        {
+            debugWaypoints.Clear();
+            if (portals != null)
+            {
+                for (int i = 0; i < portals.Count; i++)
+                {
+                    debugWaypoints.Add(PortalPosition(portals[i]));
+                }
+            }
+
+            lastPath = new DebugPath(
+                from,
+                to,
+                debugWaypoints.ToArray(),
+                hearingDistance,
+                usedGraph);
+        }
+
+        public static void CollectPreflight(List<string> warnings)
+        {
+            if (warnings == null) return;
+            warnings.Clear();
+            RebuildIfNeeded();
+
+#if UNITY_6000_5_OR_NEWER
+            var zones = Object.FindObjectsByType<VoiceZone>(FindObjectsInactive.Exclude);
+            var portals = Object.FindObjectsByType<VoicePortal>(FindObjectsInactive.Exclude);
+            var players = Object.FindObjectsByType<EarshotProximityVoice>(FindObjectsInactive.Exclude);
+#else
+            var zones = Object.FindObjectsByType<VoiceZone>(
+                FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+            var portals = Object.FindObjectsByType<VoicePortal>(
+                FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+            var players = Object.FindObjectsByType<EarshotProximityVoice>(
+                FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+#endif
+
+            var connected = new HashSet<int>();
+            for (int i = 0; i < connections.Count; i++)
+            {
+                var link = connections[i];
+                if (link.A != null) connected.Add(link.A.GetInstanceID());
+                if (link.B != null) connected.Add(link.B.GetInstanceID());
+            }
+
+            for (int i = 0; i < zones.Length; i++)
+            {
+                var zone = zones[i];
+                if (zone == null) continue;
+                if (!connected.Contains(zone.GetInstanceID()))
+                {
+                    warnings.Add("Zone ohne Portal: " + zone.ZoneName);
+                }
+            }
+
+            for (int i = 0; i < portals.Length; i++)
+            {
+                var portal = portals[i];
+                if (portal == null) continue;
+                if (!TryResolveSides(portal, out var a, out var b) || a == b)
+                {
+                    warnings.Add("Portal ohne zwei Zonen: " + portal.name);
+                }
+            }
+
+            var probe = new Collider[8];
+            for (int i = 0; i < players.Length; i++)
+            {
+                var player = players[i];
+                if (player == null) continue;
+                if (VoiceZone.FindAt(player.Position, ~0, probe) == null)
+                {
+                    warnings.Add("Spieler ausserhalb jeder Zone: " + player.name);
+                }
+            }
+        }
+
         internal static bool TryResolveSides(VoicePortal portal, out VoiceZone a, out VoiceZone b)
         {
             a = null;
@@ -119,6 +249,14 @@ namespace Earshot.Voice
             if (portal == null) return false;
 
             Vector3 center = PortalCenter(portal);
+
+            if (portal.Kind == VoicePortalKind.Stair)
+            {
+                a = ProbeZone(center, Vector3.up);
+                b = ProbeZone(center, Vector3.down);
+                if (a != null && b != null && a != b) return true;
+            }
+
             Vector3 axis = portal.transform.forward;
             if (axis.sqrMagnitude < 0.0001f) axis = Vector3.forward;
             axis.Normalize();
@@ -130,7 +268,7 @@ namespace Earshot.Voice
 
         private static VoiceZone ProbeZone(Vector3 center, Vector3 axis)
         {
-            float[] offsets = { 0.4f, 1.2f, 2.4f };
+            float[] offsets = { 0.4f, 1.2f, 2.4f, 4f };
             for (int i = 0; i < offsets.Length; i++)
             {
                 var zone = VoiceZone.FindAt(center + axis * offsets[i], ~0, ProbeBuffer);
@@ -150,22 +288,35 @@ namespace Earshot.Voice
 
         private static float EdgeLength(VoiceZone a, VoiceZone b, VoicePortal portal)
         {
+            if (portal != null && portal.HasTravelLength) return portal.TravelLength;
+
             Vector3 portalPos = PortalCenter(portal);
             Vector3 from = ZoneCenter(a);
             Vector3 to = ZoneCenter(b);
             return Vector3.Distance(from, portalPos) + Vector3.Distance(portalPos, to);
         }
 
-        internal static Vector3 ZoneCenter(VoiceZone zone)
+        public static Vector3 ZoneCenter(VoiceZone zone)
         {
             if (zone == null) return default;
             var col = zone.GetComponent<Collider>();
             return col != null ? col.bounds.center : zone.transform.position;
         }
 
-        internal static Vector3 PortalPosition(VoicePortal portal)
+        public static Vector3 PortalPosition(VoicePortal portal)
         {
             return portal != null ? PortalCenter(portal) : default;
+        }
+
+        public static float HopLength(Vector3 from, Vector3 to, VoicePortal portal)
+        {
+            float geometric = Vector3.Distance(from, to);
+            if (portal != null && portal.HasTravelLength)
+            {
+                return Mathf.Max(geometric, portal.TravelLength);
+            }
+
+            return geometric;
         }
     }
 }
