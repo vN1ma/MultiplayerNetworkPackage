@@ -4,11 +4,17 @@ namespace Earshot.Voice
 {
     /// <summary>
     /// Lautsprecher an einem Walkie: Remote-Gewinner oder lokales Sidetone, mit Delay.
+    /// <para>
+    /// Wichtig: <see cref="OnAudioFilterRead"/> laeuft auf dem Audio-Thread —
+    /// dort kein <c>AudioSettings</c>, keine Allokationen, keine Unity-API.
+    /// </para>
     /// </summary>
     [AddComponentMenu("")]
     [RequireComponent(typeof(AudioSource))]
     internal sealed class WalkieDeviceOutput : MonoBehaviour
     {
+        private const int MaxDelaySeconds = 2;
+
         private EarshotWalkieTalkie walkie;
         private AudioSource source;
         private AudioLowPassFilter lowPass;
@@ -23,24 +29,33 @@ namespace Earshot.Voice
         private int sampleRate = 48000;
         private string lastStreamId;
 
+        // Audio-Thread setzt nur Flags; Main-Thread baut den Delay-Puffer.
+        private volatile int pendingChannels;
+        private volatile bool delayReady;
+
         private readonly float[] pullBuffer = new float[4096];
 
         internal void Bind(EarshotWalkieTalkie owner)
         {
             walkie = owner;
+            CacheSampleRate();
             EnsureAudio();
+            EnsureDelayCapacity(outputChannels);
             ApplyEq();
             WalkieRadioBus.Register(this);
         }
 
         private void OnEnable()
         {
+            CacheSampleRate();
+            EnsureDelayCapacity(outputChannels);
             WalkieRadioBus.Register(this);
         }
 
         private void OnDisable()
         {
             WalkieRadioBus.Unregister(this);
+            delayReady = false;
         }
 
         internal void PushSamples(
@@ -92,6 +107,19 @@ namespace Earshot.Voice
             lastStreamId = null;
         }
 
+        private void CacheSampleRate()
+        {
+            try
+            {
+                int rate = AudioSettings.outputSampleRate;
+                if (rate > 0) sampleRate = rate;
+            }
+            catch
+            {
+                // Scene-Load / falscher Thread — Default behalten.
+            }
+        }
+
         private void EnsureAudio()
         {
             if (source == null)
@@ -100,12 +128,14 @@ namespace Earshot.Voice
                 if (source == null) source = gameObject.AddComponent<AudioSource>();
             }
 
-            source.playOnAwake = true;
+            source.playOnAwake = false;
             source.loop = true;
             source.spatialBlend = 1f;
             source.dopplerLevel = 0f;
             source.rolloffMode = AudioRolloffMode.Linear;
             source.minDistance = 0.4f;
+            source.mute = true;
+            source.volume = 0f;
 
             if (lowPass == null)
             {
@@ -119,20 +149,47 @@ namespace Earshot.Voice
                 if (highPass == null) highPass = gameObject.AddComponent<AudioHighPassFilter>();
             }
 
-            if (!source.isPlaying)
+            // EQ erst aktiv, wenn wirklich Funkton laeuft — sonst faerbt der HighPass
+            // Stille/Rauschen und stoert die Szene.
+            lowPass.enabled = false;
+            highPass.enabled = false;
+
+            if (source.clip == null)
             {
-                source.clip = AudioClip.Create("EarshotWalkieOut", 256, 1, 48000, false);
+                source.clip = AudioClip.Create("EarshotWalkieOut", 256, 1, sampleRate, false);
                 var zeros = new float[256];
                 source.clip.SetData(zeros, 0);
-                source.loop = true;
-                source.Play();
             }
+
+            if (!source.isPlaying) source.Play();
+        }
+
+        private void EnsureDelayCapacity(int channels)
+        {
+            channels = Mathf.Max(1, channels);
+            int needed = Mathf.Max(channels, MaxDelaySeconds * sampleRate * channels);
+            if (delayRing != null && delayRing.Length >= needed && outputChannels == channels)
+            {
+                delayReady = true;
+                return;
+            }
+
+            outputChannels = channels;
+            delayRing = new float[needed];
+            delayWrite = 0;
+            delayPrimed = false;
+            delayReady = true;
         }
 
         private void LateUpdate()
         {
             if (walkie == null) return;
+
+            CacheSampleRate();
             EnsureAudio();
+
+            int want = pendingChannels > 0 ? pendingChannels : outputChannels;
+            EnsureDelayCapacity(want);
             ApplyEq();
 
             Transform anchor = walkie.AudioAnchor;
@@ -148,8 +205,11 @@ namespace Earshot.Voice
                 volume = walkie.RadioVolume * DistanceFalloff() * EarshotVoice.HeardVoiceVolume;
             }
 
+            bool audible = volume > 0.0001f;
             source.volume = Mathf.Clamp01(volume);
-            source.mute = volume <= 0.0001f;
+            source.mute = !audible;
+            if (lowPass != null) lowPass.enabled = audible;
+            if (highPass != null) highPass.enabled = audible;
         }
 
         private bool ShouldOutput()
@@ -212,55 +272,71 @@ namespace Earshot.Voice
         {
             if (data == null || data.Length == 0) return;
 
-            if (channels != outputChannels || delayRing == null)
+            try
             {
-                outputChannels = Mathf.Max(1, channels);
-                sampleRate = AudioSettings.outputSampleRate > 0 ? AudioSettings.outputSampleRate : 48000;
-                RebuildDelay();
-            }
+                int ch = channels > 0 ? channels : 1;
+                if (ch != outputChannels || !delayReady || delayRing == null)
+                {
+                    pendingChannels = ch;
+                    Silence(data);
+                    return;
+                }
 
-            if (walkie == null || !walkie.PoweredOn || walkie.IsTransmitting)
-            {
-                for (int i = 0; i < data.Length; i++) data[i] = 0f;
-                return;
-            }
+                if (walkie == null || !walkie.PoweredOn || walkie.IsTransmitting)
+                {
+                    Silence(data);
+                    return;
+                }
 
-            int n = Mathf.Min(data.Length, pullBuffer.Length);
-            inbox.Read(pullBuffer, 0, n);
+                int n = data.Length < pullBuffer.Length ? data.Length : pullBuffer.Length;
+                inbox.Read(pullBuffer, 0, n);
 
-            float delaySec = WalkieRules.ClampDelaySeconds(delaySeconds);
-            if (delaySec <= 0.0001f || delayRing == null || delayRing.Length == 0)
-            {
+                float delaySec = delaySeconds;
+                if (delaySec < 0f) delaySec = 0f;
+                if (delaySec > 1.5f) delaySec = 1.5f;
+
+                if (delaySec <= 0.0001f)
+                {
+                    for (int i = 0; i < data.Length; i++)
+                    {
+                        data[i] = i < n ? pullBuffer[i] : 0f;
+                    }
+
+                    return;
+                }
+
+                int rate = sampleRate > 0 ? sampleRate : 48000;
+                int delaySamples = Mathf.CeilToInt(delaySec * rate) * outputChannels;
+                if (delaySamples < outputChannels) delaySamples = outputChannels;
+                if (delaySamples > delayRing.Length) delaySamples = delayRing.Length;
+
                 for (int i = 0; i < data.Length; i++)
                 {
-                    data[i] = i < n ? pullBuffer[i] : 0f;
+                    float incoming = i < n ? pullBuffer[i] : 0f;
+                    int readIndex = delayWrite - delaySamples;
+                    if (readIndex < 0) readIndex += delayRing.Length;
+
+                    float outgoing = delayPrimed ? delayRing[readIndex] : 0f;
+                    delayRing[delayWrite] = incoming;
+                    delayWrite++;
+                    if (delayWrite >= delayRing.Length)
+                    {
+                        delayWrite = 0;
+                        delayPrimed = true;
+                    }
+
+                    data[i] = outgoing;
                 }
-
-                return;
             }
-
-            int delaySamples = Mathf.Clamp(
-                Mathf.CeilToInt(delaySec * sampleRate) * outputChannels,
-                outputChannels,
-                delayRing.Length);
-
-            for (int i = 0; i < data.Length; i++)
+            catch
             {
-                float incoming = i < n ? pullBuffer[i] : 0f;
-                int readIndex = delayWrite - delaySamples;
-                while (readIndex < 0) readIndex += delayRing.Length;
-
-                float outgoing = delayPrimed ? delayRing[readIndex] : 0f;
-                delayRing[delayWrite] = incoming;
-                delayWrite++;
-                if (delayWrite >= delayRing.Length)
-                {
-                    delayWrite = 0;
-                    delayPrimed = true;
-                }
-
-                data[i] = outgoing;
+                Silence(data);
             }
+        }
+
+        private static void Silence(float[] data)
+        {
+            for (int i = 0; i < data.Length; i++) data[i] = 0f;
         }
 
         private string ResolveStreamId()
@@ -279,14 +355,6 @@ namespace Earshot.Voice
             if (WalkieTalkieRegistry.LocalIsTransmitting) return null;
 
             return WalkieRadioBus.GetAudibleRemote(walkie.ChannelId);
-        }
-
-        private void RebuildDelay()
-        {
-            int length = Mathf.Max(outputChannels, Mathf.CeilToInt(1.5f * sampleRate) * outputChannels);
-            delayRing = new float[length];
-            delayWrite = 0;
-            delayPrimed = false;
         }
     }
 }
