@@ -177,16 +177,29 @@ namespace Earshot.Voice
         }
 
         /// <summary>
-        /// Spielt eine Schleife ab. Nur fuer die Teststimme im Testraum, nicht fuer Vivox.
+        /// Spielt einen Testclip. Nicht fuer Vivox. Standard: einmal durch, kein Loop.
         /// </summary>
-        internal void PlayLoop(AudioClip clip)
+        internal void PlayClip(AudioClip clip, bool loop = false)
         {
             debugLoop = true;
             if (tap == null || clip == null) return;
             tap.clip = clip;
-            tap.loop = true;
+            tap.loop = loop;
+            tap.time = 0f;
             tap.Play();
         }
+
+        internal void PauseClip()
+        {
+            if (tap != null) tap.Pause();
+        }
+
+        internal void UnPauseClip()
+        {
+            if (tap != null) tap.UnPause();
+        }
+
+        internal bool IsClipPlaying => tap != null && tap.isPlaying;
 
         /// <summary>
         /// Liest nur mit, ob im rohen Tap-Signal ein Pegel ankommt. Aendert das Signal

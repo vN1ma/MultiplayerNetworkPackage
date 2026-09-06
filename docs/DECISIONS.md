@@ -10,6 +10,11 @@ Auswirkung: welches Arbeitspaket/welche Datei betroffen ist
 ```
 
 
+## [2026-09-06] Hoertest-Ton ist Testaudio, E ist Pause
+Kontext: Nutzer legt `Testaudio.mp3` ins Repo-Root und will den Clip an den Emittern, ohne bei jedem E von vorn.
+Entscheidung/Fakt: Der Clip liegt als Resources-Asset im Paket. E pausiert/unpausiert; Neustart nur nach Ende. Synthetischer Loop bleibt Fallback.
+Auswirkung: ~21 MB im Paket. Nach Package-Update Hoertest neu erzeugen oder einfach Play.
+
 ## [2026-09-06] Klangfarbe ist optional an der Quelle
 Kontext: Nutzer will Dumpf/Hall am angeklickten Test-Emitter einstellen, und dasselbe an alles haengen was Ton spielt.
 Entscheidung/Fakt: `VoiceSourceColor` ist optional (wie Zone/Portal), nicht am Player Pflicht. Testlautsprecher bekommen sie automatisch. Wirkt nach der Welt-Pipeline; an einer normalen AudioSource faerbt sie den Clip direkt.

@@ -40,9 +40,7 @@ namespace Earshot.Voice
             string text = "";
             if (speaker != null)
             {
-                text += speaker.IsPlaying
-                    ? "E: Ton aus (" + speaker.name + ")   "
-                    : "E: Ton an (" + speaker.name + ")   ";
+                text += speaker.PlaybackHint;
             }
 
             if (door != null) text += "F: " + door.Label;

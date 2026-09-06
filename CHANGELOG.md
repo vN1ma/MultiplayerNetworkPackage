@@ -10,6 +10,10 @@ Neueste Einträge oben. Format (siehe `.clinerules/01-workflow.md`):
 ```
 
 
+## [2026-09-06] – Hoertest spielt Testaudio, E pausiert
+- Die Testlautsprecher spielen `Testaudio.mp3`. E pausiert und setzt an derselben Stelle fort; neu von vorn nur, wenn der Clip durch ist.
+- Betroffene Dateien: `VoiceTestSpeaker.cs`, `VoiceEmitter.cs`, `HearingTest/Resources/Testaudio.mp3`
+
 ## [2026-09-06] – Klangfarbe pro Quelle
 - `Voice Source Color` an jeden Testlautsprecher, Player oder jede AudioSource. Dumpf, Hall, blechern und Lautstaerke gelten nur fuer diese Quelle, zusaetzlich zu Distanz und Waenden.
 - Betroffene Dateien: `VoiceSourceColor.cs`, `VoiceRuntime.cs`, `VoiceTestSpeaker.cs`

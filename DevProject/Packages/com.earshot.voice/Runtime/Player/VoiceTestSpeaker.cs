@@ -27,23 +27,80 @@ namespace Earshot.Voice
         [Tooltip("Eindeutiger Name, falls mehrere Testlautsprecher in derselben Szene stehen.")]
         private string speakerId = "testsprecher";
 
+        [SerializeField]
+        [Tooltip("Leer = Testaudio aus Resources, sonst dieser Clip.")]
+        private AudioClip clipOverride;
+
+        private const string DefaultClipResource = "Testaudio";
         private const float SafetyRecheckSeconds = 0.5f;
 
         private GameObject host;
         private VoiceEmitter emitter;
-        private AudioClip clip;
+        private AudioClip generatedClip;
+        private bool paused;
         private float nextSafetyRecheck;
 
-        public bool IsPlaying => emitter != null && isActiveAndEnabled;
+        public bool IsPlaying => emitter != null && emitter.IsClipPlaying;
+        public bool IsPaused => paused && !IsPlaying;
+
+        public string PlaybackHint
+        {
+            get
+            {
+                if (IsPlaying) return "E: Pause (" + name + ")   ";
+                if (IsPaused) return "E: Weiter (" + name + ")   ";
+                return "E: Ton spielen (" + name + ")   ";
+            }
+        }
 
         public void Toggle()
         {
-            enabled = !enabled;
+            TogglePlayback();
+        }
+
+        public void TogglePlayback()
+        {
+            if (!Application.isPlaying) return;
+
+            Ensure();
+            if (emitter == null) return;
+
+            if (emitter.IsClipPlaying)
+            {
+                emitter.PauseClip();
+                paused = true;
+                return;
+            }
+
+            if (paused)
+            {
+                emitter.UnPauseClip();
+                paused = false;
+                return;
+            }
+
+            emitter.PlayClip(ResolveClip());
+            paused = false;
         }
 
         public void SetPlaying(bool playing)
         {
-            enabled = playing;
+            Ensure();
+            if (emitter == null) return;
+
+            if (playing)
+            {
+                if (paused) emitter.UnPauseClip();
+                else if (!emitter.IsClipPlaying) emitter.PlayClip(ResolveClip());
+                paused = false;
+                return;
+            }
+
+            if (emitter.IsClipPlaying)
+            {
+                emitter.PauseClip();
+                paused = true;
+            }
         }
 
         public void SetSpeakerId(string id)
@@ -102,15 +159,28 @@ namespace Earshot.Voice
             emitter.Initialize("debug:" + speakerId, source, EarshotVoiceSettings.Instance.VoiceProfile);
             emitter.Anchor = transform;
 
-            clip = BuildTestClip();
-            emitter.PlayLoop(clip);
+            emitter.PlayClip(ResolveClip());
+            paused = false;
 
             runtime.RegisterDebugEmitter(emitter);
             EarshotVoiceLog.Info($"Voice-Testton '{speakerId}' laeuft an {name}.");
         }
 
+        private AudioClip ResolveClip()
+        {
+            if (clipOverride != null) return clipOverride;
+
+            var loaded = Resources.Load<AudioClip>(DefaultClipResource);
+            if (loaded != null) return loaded;
+
+            if (generatedClip == null) generatedClip = BuildTestClip();
+            return generatedClip;
+        }
+
         private void Remove()
         {
+            paused = false;
+
             if (emitter != null)
             {
                 VoiceRuntime.Instance?.UnregisterDebugEmitter(emitter);
@@ -123,10 +193,10 @@ namespace Earshot.Voice
                 host = null;
             }
 
-            if (clip != null)
+            if (generatedClip != null)
             {
-                Destroy(clip);
-                clip = null;
+                Destroy(generatedClip);
+                generatedClip = null;
             }
         }
 

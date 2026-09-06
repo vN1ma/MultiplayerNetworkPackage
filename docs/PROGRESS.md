@@ -6,7 +6,7 @@
 
 Status: Treppen, Richtung aus der Tuer, Offset-Faecher und Autorentools sind drin. Zonen/Portale bleiben optional.
 
-Nächster Schritt: Phase 4 Walkie-Talkie. Hoerregler sitzen am Player. Pro Quelle: `Voice Source Color` (Dumpf/Hall am Emitter-Block). Hoertest: Menue `Earshot Voice / Create Hearing Test Scene` — Szene liegt danach unter `Assets/EarshotHearingTest.unity`.
+Nächster Schritt: Phase 4 Walkie-Talkie. Hoertest-Emitter spielen `Testaudio`; E pausiert/setzt fort. Hoerregler am Player, `Voice Source Color` am Emitter. Szene: `Earshot Voice / Create Hearing Test Scene` → `Assets/EarshotHearingTest.unity`.
 
 ---
 

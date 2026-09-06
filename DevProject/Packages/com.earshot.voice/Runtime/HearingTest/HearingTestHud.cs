@@ -14,7 +14,7 @@ namespace Earshot.Voice
             GUI.Box(box, "");
             GUI.Label(new Rect(28f, 24f, width - 24f, 72f),
                 "WASD bewegen   Maus umschauen   Linksklick sperrt die Maus\n" +
-                "E  Ton im naechsten Raum an/aus\n" +
+                "E  Ton pause / weiter (neu nur wenn durch)\n" +
                 "F  naechste Tuer auf/zu   Esc  Maus frei\n" +
                 Status());
         }
