@@ -76,14 +76,18 @@ namespace Earshot.Voice
                 int current = remaining[bestIndex];
                 remaining.RemoveAt(bestIndex);
 
+                if (float.IsPositiveInfinity(best)) break;
+
                 if (current == goal)
                 {
+                    if (!TryReconstruct(goal, start, prev, prevPortal, portalKeys))
+                    {
+                        return false;
+                    }
+
                     cost = dist[goal];
-                    Reconstruct(goal, start, prev, prevPortal, portalKeys);
                     return true;
                 }
-
-                if (float.IsPositiveInfinity(best)) break;
 
                 var edges = adjacency[current];
                 for (int i = 0; i < edges.Count; i++)
@@ -100,7 +104,7 @@ namespace Earshot.Voice
             return false;
         }
 
-        private static void Reconstruct(
+        private static bool TryReconstruct(
             int goal,
             int start,
             Dictionary<int, int> prev,
@@ -109,16 +113,25 @@ namespace Earshot.Voice
         {
             var reverse = new List<int>(8);
             int walk = goal;
+            int guard = prev.Count + 2;
             while (walk != start)
             {
-                reverse.Add(prevPortal[walk]);
-                walk = prev[walk];
+                if (--guard < 0) return false;
+                if (!prevPortal.TryGetValue(walk, out int portal) ||
+                    !prev.TryGetValue(walk, out walk))
+                {
+                    return false;
+                }
+
+                reverse.Add(portal);
             }
 
             for (int i = reverse.Count - 1; i >= 0; i--)
             {
                 portalKeys.Add(reverse[i]);
             }
+
+            return true;
         }
     }
 

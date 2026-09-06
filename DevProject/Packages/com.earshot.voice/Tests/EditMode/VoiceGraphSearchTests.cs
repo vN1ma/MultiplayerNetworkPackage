@@ -20,6 +20,21 @@ namespace Earshot.Voice.Tests
         }
 
         [Test]
+        public void DisconnectedNodes_ReturnsFalse_DoesNotThrow()
+        {
+            var search = new VoiceGraphSearch();
+            search.AddNode(1);
+            search.AddNode(-475822);
+
+            Assert.DoesNotThrow(() =>
+            {
+                bool found = search.TryFindPath(1, -475822, new List<int>(), out float cost);
+                Assert.IsFalse(found);
+                Assert.AreEqual(0f, cost);
+            });
+        }
+
+        [Test]
         public void MissingNode_Fails()
         {
             var search = new VoiceGraphSearch();

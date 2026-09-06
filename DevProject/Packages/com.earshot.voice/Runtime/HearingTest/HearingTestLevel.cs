@@ -192,6 +192,8 @@ namespace Earshot.Voice
             head.transform.localPosition = new Vector3(0f, 1.6f, 0f);
             var camera = head.AddComponent<Camera>();
             camera.nearClipPlane = 0.08f;
+            camera.clearFlags = CameraClearFlags.SolidColor;
+            camera.backgroundColor = new Color(0.16f, 0.17f, 0.19f);
             head.AddComponent<AudioListener>();
 
             var voice = player.AddComponent<EarshotProximityVoice>();
@@ -384,7 +386,7 @@ namespace Earshot.Voice
             go.transform.position = center;
             go.transform.localScale = size;
             var renderer = go.GetComponent<MeshRenderer>();
-            if (renderer != null) renderer.sharedMaterial = material;
+            if (renderer != null && material != null) renderer.sharedMaterial = material;
             var collider = go.GetComponent<BoxCollider>();
             if (collider != null) collider.isTrigger = trigger;
             return go;
@@ -392,22 +394,28 @@ namespace Earshot.Voice
 
         private void CreateMaterials()
         {
-            wallMat = MakeMat(new Color(0.62f, 0.6f, 0.56f));
-            floorMat = MakeMat(new Color(0.28f, 0.27f, 0.25f));
-            ceilingMat = MakeMat(new Color(0.78f, 0.76f, 0.72f));
-            doorMat = MakeMat(new Color(0.45f, 0.28f, 0.16f));
-            stairMat = MakeMat(new Color(0.5f, 0.38f, 0.24f));
-            speakerMat = MakeMat(new Color(0.85f, 0.2f, 0.18f));
+            var probe = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            var source = probe.GetComponent<MeshRenderer>() != null
+                ? probe.GetComponent<MeshRenderer>().sharedMaterial
+                : null;
+            if (Application.isPlaying) Destroy(probe);
+            else DestroyImmediate(probe);
+
+            wallMat = Tint(source, new Color(0.62f, 0.6f, 0.56f));
+            floorMat = Tint(source, new Color(0.28f, 0.27f, 0.25f));
+            ceilingMat = Tint(source, new Color(0.78f, 0.76f, 0.72f));
+            doorMat = Tint(source, new Color(0.45f, 0.28f, 0.16f));
+            stairMat = Tint(source, new Color(0.5f, 0.38f, 0.24f));
+            speakerMat = Tint(source, new Color(0.85f, 0.2f, 0.18f));
         }
 
-        private static Material MakeMat(Color color)
+        private static Material Tint(Material source, Color color)
         {
-            var shader = Shader.Find("Standard")
-                ?? Shader.Find("Universal Render Pipeline/Lit")
-                ?? Shader.Find("Unlit/Color");
-            var material = new Material(shader);
-            if (material.HasProperty("_Color")) material.SetColor("_Color", color);
+            var material = source != null ? new Material(source) : null;
+            if (material == null) return null;
             if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", color);
+            if (material.HasProperty("_Color")) material.SetColor("_Color", color);
+            if (material.HasProperty("_UnlitColor")) material.SetColor("_UnlitColor", color);
             return material;
         }
 

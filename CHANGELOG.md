@@ -10,6 +10,11 @@ Neueste Einträge oben. Format (siehe `.clinerules/01-workflow.md`):
 ```
 
 
+## [2026-09-06] – Graph-Crash und pinke Hoertest-Materialien
+- Dijkstra hat unverbundene Raeume als Weg gewertet und in Reconstruct gekracht. Unerreichbare Knoten liefern jetzt false.
+- Hoertest faerbt das projekt-eigene Default-Material (URP/HDRP), statt Built-in Standard — das war das Pink.
+- Betroffene Dateien: `VoiceGraphSearch.cs`, `HearingTestLevel.cs`
+
 ## [2026-09-06] – Hoertest-Szene nach Assets, nicht ins Git-Paket
 - `Create Hearing Test Scene` speichert nach `Assets/EarshotHearingTest.unity`. Git-Pakete sind fuer Unity unveraenderlich; eine Szene im Paket laesst sich nicht oeffnen.
 - Betroffene Dateien: `Editor/HearingTestSceneBuilder.cs`, `Scenes/HearingTest.unity` (entfernt)
