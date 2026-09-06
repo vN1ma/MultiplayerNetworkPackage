@@ -23,6 +23,8 @@ namespace Earshot.Voice
             new Dictionary<VoiceSpeakerKey, VoiceEmitter>();
         private readonly Dictionary<string, VoiceEmitter> byPlayerId =
             new Dictionary<string, VoiceEmitter>(System.StringComparer.OrdinalIgnoreCase);
+        private readonly WalkieTalkArbitration radioArbitration = new WalkieTalkArbitration();
+        private readonly List<string> radioChannelScratch = new List<string>(4);
 
         private IVoiceBackend backend;
         private AudioListener listener;
@@ -68,6 +70,7 @@ namespace Earshot.Voice
 
             instance = go.AddComponent<VoiceRuntime>();
             WalkieRadioSync.EnsureOn(instance);
+            WalkieSidetoneCapture.EnsureOn(instance);
             return instance;
         }
 
@@ -86,6 +89,7 @@ namespace Earshot.Voice
 
             VoiceRoster.IdentityReady += OnIdentityReady;
             WalkieRadioSync.EnsureOn(this);
+            WalkieSidetoneCapture.EnsureOn(this);
             WalkieTalkieRegistry.NotifyChanged();
         }
 
@@ -118,6 +122,8 @@ namespace Earshot.Voice
             byPlayerId.Clear();
             deadSince.Clear();
             lastRecoveryAttempt.Clear();
+            radioArbitration.ClearAll();
+            WalkieRadioBus.ClearAll();
         }
 
         /// <summary>
@@ -186,6 +192,8 @@ namespace Earshot.Voice
 
             if (key.PathKind == VoicePathKind.Radio)
             {
+                radioArbitration.SetSpeaking(key.ChannelId, key.PlayerId, false, Time.unscaledTime);
+
                 bool stillRadio = false;
                 for (int i = 0; i < emitters.Count; i++)
                 {
@@ -374,64 +382,89 @@ namespace Earshot.Voice
                 emitter.LastContext = context;
                 emitter.SetTarget(in sample);
             }
+
+            PublishRadioWinners();
         }
 
         private void EvaluateRadioEmitter(VoiceEmitter emitter, Vector3 listenerPosition)
         {
-            var settings = WalkieTalkieRegistry.GetSettingsDevice(emitter.ChannelId);
-            float volume = settings != null ? settings.RadioVolume : 0.75f;
-            float highPass = settings != null ? settings.HighPassHz : 800f;
-            float lowPass = settings != null ? settings.LowPassHz : 3500f;
-            float maxDist = settings != null ? settings.MaxHearingDistance : 8f;
-            float delay = settings != null
-                ? settings.TransmissionDelaySeconds
-                : WalkieTalkieRegistry.ActiveTransmissionDelaySeconds;
+            // Vivox-Tap bleibt stumm — Wiedergabe nur an WalkieDeviceOutput (alle Geraete).
+            radioArbitration.SetSpeaking(
+                emitter.ChannelId,
+                emitter.PlayerId,
+                emitter.TapIsPlaying,
+                Time.unscaledTime);
 
-            emitter.SetRadioDelaySeconds(delay);
-
-            Transform anchor = WalkieTalkieRegistry.GetBestReceiveAnchor(
+            var silent = VoiceSample.Default;
+            silent.Muted = true;
+            silent.Volume = 0f;
+            silent.SpatialBlend = 0f;
+            emitter.VolumeScale = 0f;
+            emitter.Anchor = WalkieTalkieRegistry.GetBestReceiveAnchor(
                 emitter.ChannelId, listenerPosition);
-            emitter.Anchor = anchor;
-
-            bool anyPowered = WalkieTalkieRegistry.HasPoweredDeviceOnChannel(emitter.ChannelId);
-            bool play = WalkieRules.ShouldPlayReceivedRadio(
-                anyPowered, WalkieTalkieRegistry.LocalIsTransmitting);
-
-            var sample = VoiceSample.Default;
-            sample.SpatialBlend = 1f;
-            sample.ReverbMix = 0f;
-            sample.HighPassHz = highPass;
-            sample.LowPassHz = lowPass;
-
-            if (!play || anchor == null)
-            {
-                sample.Muted = true;
-                sample.Volume = 0f;
-            }
-            else
-            {
-                float distance = Vector3.Distance(listenerPosition, anchor.position);
-                float falloff = 1f - Mathf.Clamp01(distance / Mathf.Max(1f, maxDist));
-                // Weicher Ausklang am Rand des Leak-Radius.
-                falloff *= falloff;
-                sample.Volume = volume * falloff;
-                sample.Muted = sample.Volume <= 0.001f;
-            }
-
-            sample.Clamp();
-            emitter.VolumeScale = 1f;
+            emitter.SetRadioDelaySeconds(0f);
             emitter.LastContext = new VoiceContext
             {
                 ListenerPosition = listenerPosition,
-                SpeakerPosition = anchor != null ? anchor.position : listenerPosition,
-                ApparentPosition = anchor != null ? anchor.position : listenerPosition,
-                Distance = anchor != null
-                    ? Vector3.Distance(listenerPosition, anchor.position)
-                    : 0f,
-                HearingDistance = maxDist,
+                SpeakerPosition = emitter.Anchor != null ? emitter.Anchor.position : listenerPosition,
+                ApparentPosition = emitter.Anchor != null ? emitter.Anchor.position : listenerPosition,
                 PortalOpenness = 1f
             };
-            emitter.SetTarget(in sample);
+            emitter.SetTarget(in silent);
+        }
+
+        private void PublishRadioWinners()
+        {
+            radioChannelScratch.Clear();
+
+            for (int i = 0; i < emitters.Count; i++)
+            {
+                var e = emitters[i];
+                if (e == null || e.PathKind != VoicePathKind.Radio) continue;
+                AddUniqueChannel(radioChannelScratch, e.ChannelId);
+            }
+
+            var devices = WalkieTalkieRegistry.Devices;
+            for (int i = 0; i < devices.Count; i++)
+            {
+                var d = devices[i];
+                if (d == null || !d.PoweredOn) continue;
+                AddUniqueChannel(radioChannelScratch, d.ChannelId);
+            }
+
+            for (int i = 0; i < radioChannelScratch.Count; i++)
+            {
+                string channelId = radioChannelScratch[i];
+                string winner = radioArbitration.GetWinnerPlayerId(channelId);
+
+                // Waehrend lokalem PTT auf demselben Kanal: kein Fremdempfang (Half-Duplex).
+                if (WalkieTalkieRegistry.LocalIsTransmitting &&
+                    string.Equals(
+                        WalkieTalkieRegistry.LocalTransmitChannelId,
+                        channelId,
+                        System.StringComparison.OrdinalIgnoreCase))
+                {
+                    WalkieRadioBus.SetAudibleRemote(channelId, null);
+                }
+                else
+                {
+                    WalkieRadioBus.SetAudibleRemote(channelId, winner);
+                }
+            }
+        }
+
+        private static void AddUniqueChannel(List<string> list, string channelId)
+        {
+            if (string.IsNullOrEmpty(channelId) || list == null) return;
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (string.Equals(list[i], channelId, System.StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+            }
+
+            list.Add(channelId);
         }
 
         private bool HasActiveRadioSpeech(string playerId)

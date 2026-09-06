@@ -51,11 +51,26 @@ namespace Earshot.Voice
         }
 
         /// <summary>
-        /// Empfang: Gerät an und lokal nicht am Senden (Half-Duplex).
+        /// Fremdempfang: Gerät an und lokal nicht am Senden (Half-Duplex).
+        /// Eigene Stimme (Sidetone) laeuft waehrend PTT separat an den anderen Geraeten.
         /// </summary>
         public static bool ShouldPlayReceivedRadio(bool devicePowered, bool localTransmitting)
         {
             return devicePowered && !localTransmitting;
+        }
+
+        /// <summary>
+        /// Ob dieses Geraet Funkton ausgeben soll (Remote oder Sidetone).
+        /// Nicht am Geraet, in das man gerade spricht.
+        /// </summary>
+        public static bool ShouldPlayOnDevice(
+            bool powered,
+            bool deviceIsTransmitting,
+            bool localTransmittingOnSameChannel)
+        {
+            if (!powered) return false;
+            if (deviceIsTransmitting) return false;
+            return true;
         }
 
         /// <summary>

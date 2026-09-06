@@ -57,6 +57,7 @@ namespace Earshot.Voice
 
         private bool poweredOn;
         private bool transmitting;
+        private WalkieDeviceOutput deviceOutput;
 
         public string ChannelId => WalkieRules.SanitizeChannelId(channelId);
 
@@ -173,6 +174,7 @@ namespace Earshot.Voice
         {
             poweredOn = startPowered;
             transmitting = false;
+            EnsureDeviceOutput();
             WalkieTalkieRegistry.Register(this);
         }
 
@@ -180,6 +182,25 @@ namespace Earshot.Voice
         {
             if (transmitting) SetTransmitting(false);
             WalkieTalkieRegistry.Unregister(this);
+        }
+
+        private void EnsureDeviceOutput()
+        {
+            if (deviceOutput != null) return;
+
+            var existing = GetComponentInChildren<WalkieDeviceOutput>(true);
+            if (existing != null)
+            {
+                deviceOutput = existing;
+                deviceOutput.Bind(this);
+                return;
+            }
+
+            var go = new GameObject("WalkieOutput");
+            go.transform.SetParent(AudioAnchor, false);
+            go.transform.localPosition = Vector3.zero;
+            deviceOutput = go.AddComponent<WalkieDeviceOutput>();
+            deviceOutput.Bind(this);
         }
 
         private void OnValidate()

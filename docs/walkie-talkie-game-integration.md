@@ -6,47 +6,64 @@ Stand: Phase 4 in `com.earshot.voice`. Dieses Dokument erklärt die Idee, was da
 
 ## Idee in einem Satz
 
-Ein Walkie ist ein **Welt-Objekt** mit `EarshotWalkieTalkie`: eingeschaltet empfängt es Funk am Geräte-Ort (Hand, Handgelenk, Boden). In der Hand + Linksklick = senden. Während du sendest, hörst du niemanden über Funk (**Half-Duplex**). Der Ton kommt leicht **versetzt** an (**Walkie-Delay**). Optik, Input und Pickup/Drop gehören ins Spiel.
+Ein Walkie ist ein **Welt-Objekt** mit `EarshotWalkieTalkie`: eingeschaltet empfängt es Funk am Geräte-Ort (Hand, Handgelenk, Boden). In der Hand + Linksklick = senden. Während du sendest, hörst du niemanden **fremd** über Funk (**Half-Duplex**), aber deine **eigene** Stimme kommt **versetzt** aus den anderen Walkies (**Sidetone**). Mehrere Sender: nur wer **zuerst** angefangen hat, ist hörbar, bis er aufhört.
 
 ---
 
-## Half-Duplex (kurz)
+## Half-Duplex + Sidetone + First-Speaker
 
-Wie ein echtes Funkgerät: **nur eine Richtung gleichzeitig**. Solange du PTT hältst, ist Empfang stumm. Redet der andere, während du auch hältst, hört keiner den anderen über Funk. Telefon wäre Full-Duplex (beide gleichzeitig).
+| Regel | Verhalten |
+|-------|-----------|
+| Half-Duplex | Während PTT kein Empfang **anderer** Stimmen |
+| Sidetone | Während PTT hörst **du** dich verzögert an allen **anderen** Geräten desselben Kanals (z.B. Boden) |
+| First-Speaker | Mehrere funken: Zuhörer hören nur den, der zuerst gestartet hat; danach der Nächste |
+| Alle Geräte | Jedes eingeschaltete Empfangs-Walkie spielt (Fan-out), nicht nur eines |
 
 ---
+
+
 
 ## Was das Package macht (`com.earshot.voice`)
 
-| Baustein | Datei / API | Verhalten |
-|----------|-------------|-----------|
-| Komponente | `EarshotWalkieTalkie` | An Objekt hängen. Kanal-ID, An/Aus, CanTransmit, PTT, EQ, Delay |
-| Vivox-Funkkanal | `VivoxVoiceBackend` + `IVoiceRadioBackend` | Separater Kanal `earshot.radio.{id}` pro logischer ID |
-| Senden | `SetTransmitting(true)` | Mikro nur in den Funkkanal (Mund/Proximity auf dem Draht stumm) |
-| Empfang | `VoiceRuntime` Radio-Pfad | Stimme am nächsten **eingeschalteten** Gerät auf dem Kanal, blechern (High-/LowPass), 3D |
-| Leak | Unity Spatial Audio | Wer nah am Gerät steht, hört den Funkton vom Geräte-Transform |
-| Half-Duplex | `WalkieRules.ShouldPlayReceivedRadio` | Lokal sendend → kein Empfang |
-| Delay | `WalkieAudioDelay` | Lokale Verzögerung am Empfänger (Inspector, Default ~0,2 s) |
-| Mund dämpfen | `WalkieRules.MouthVolumeScale` | Solange derselbe Sprecher funkt und Radio-Audio ankommt, Proximity leiser |
+
+| Baustein        | Datei / API                                | Verhalten                                                                                |
+| --------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| Komponente      | `EarshotWalkieTalkie`                      | An Objekt hängen. Kanal-ID, An/Aus, CanTransmit, PTT, EQ, Delay                          |
+| Vivox-Funkkanal | `VivoxVoiceBackend` + `IVoiceRadioBackend` | Separater Kanal `earshot.radio.{id}` pro logischer ID                                    |
+| Senden          | `SetTransmitting(true)`                    | Mikro nur in den Funkkanal (Mund/Proximity auf dem Draht stumm)                          |
+| Empfang         | `WalkieDeviceOutput` + Bus                 | Stimme an **allen** Empfangs-Geräten, blechern, 3D, Delay                                |
+| Sidetone        | `WalkieSidetoneCapture`                    | Eigene Stimme während PTT versetzt an anderen Walkies                                    |
+| First-Speaker   | `WalkieTalkArbitration`                    | Nur wer zuerst gefunkt hat, bis er aufhört                                               |
+| Leak            | Unity Spatial Audio                        | Wer nah am Gerät steht, hört den Funkton vom Geräte-Transform                            |
+| Half-Duplex     | Registry + Bus                             | Lokal sendend → kein Fremdempfang (Sidetone bleibt)                                      |
+| Mund dämpfen    | `WalkieRules.MouthVolumeScale`             | Solange derselbe Sprecher funkt und Radio-Audio ankommt, Proximity leiser                |
+
 
 **Nicht im Package:** Mesh, Animator, Hand-/Hüft-Slots, E/G/Q/LMB, Netzwerk-Besitz „wer hält welches Walkie“.
 
 ---
+
+
 
 ## Spielregeln (Soll-Verhalten)
 
 ```
 Gerät AUS                         → stumm
 Gerät AN (Hand / Handgelenk / Boden) → Empfang an diesem Gerät
-In Hand (CanTransmit) + LMB halten → senden; Empfang aus (Half-Duplex)
-Anderer sendet, ich nicht          → ich höre ihn am Gerät (mit Delay)
-Beide gleichzeitig LMB             → keiner hört den anderen über Funk
-Beliebig viele Walkies             → gleiche ChannelId = gleiches Netz
+In Hand + LMB                     → senden; eigene Stimme versetzt an anderen Walkies
+                                  → kein Fremdempfang (Half-Duplex)
+Anderer sendet, ich nicht         → ich höre ihn an allen meinen Empfangs-Walkies
+Mehrere senden gleichzeitig       → Zuhörer hören nur den Ersten, bis der aufhört
+Beliebig viele Walkies            → gleiche ChannelId = gleiches Netz
 ```
 
 ---
 
+
+
 ## Was du im Game-Repo baust
+
+
 
 ### 1. Prefab
 
@@ -54,14 +71,18 @@ Beliebig viele Walkies             → gleiche ChannelId = gleiches Netz
 - `EarshotWalkieTalkie` drauf
 - Optional leeres Child als `AudioAnchor` (Lautsprecher-Punkt)
 
+
+
 ### 2. Input → Package-API
 
-| Taste (Vorschlag) | Spiel-Aktion | Package-Aufruf |
-|-------------------|--------------|----------------|
-| **Q** | Ein/Aus | `walkie.SetPowered(!walkie.PoweredOn)` |
-| **E** | Aufheben | Parent an Hand-Slot, `SetCanTransmit(true)` |
-| **G** | Ablegen | Parent lösen / Welt, `SetCanTransmit(false)`, ggf. `SetTransmitting(false)` |
-| **LMB** halten | Reinsprechen | `SetTransmitting(true)` / beim Loslassen `false` |
+
+| Taste (Vorschlag) | Spiel-Aktion | Package-Aufruf                                                              |
+| ----------------- | ------------ | --------------------------------------------------------------------------- |
+| **Q**             | Ein/Aus      | `walkie.SetPowered(!walkie.PoweredOn)`                                      |
+| **E**             | Aufheben     | Parent an Hand-Slot, `SetCanTransmit(true)`                                 |
+| **G**             | Ablegen      | Parent lösen / Welt, `SetCanTransmit(false)`, ggf. `SetTransmitting(false)` |
+| **LMB** halten    | Reinsprechen | `SetTransmitting(true)` / beim Loslassen `false`                            |
+
 
 Am Handgelenk (passiv): `SetPowered(true)`, `SetCanTransmit(false)` — nur Empfang.
 
@@ -80,6 +101,8 @@ PTT und CanTransmit können lokal bleiben: Vivox trägt die Stimme nur, wenn **d
 Einfach mehrere Prefab-Instanzen. Gleiche `channelId` → gleiches Funknetz. Verschiedene IDs → getrennte Netze.
 
 ---
+
+
 
 ## Minimal-Beispiel (Spielcode-Skizze)
 
@@ -108,6 +131,8 @@ Proximity-Chat bleibt unverändert: `EarshotProximityVoice` auf dem Player. Walk
 
 ---
 
+
+
 ## Inspector-Felder (Package)
 
 - **Channel Id** — logische ID (`default`, `ops`, …)
@@ -121,6 +146,8 @@ Proximity-Chat bleibt unverändert: `EarshotProximityVoice` auf dem Player. Walk
 
 ---
 
+
+
 ## Wo im Package der Code liegt
 
 ```
@@ -129,18 +156,18 @@ Runtime/Walkie/
   WalkieRules.cs             ← Half-Duplex, Kanalnamen, Mund-Skala (testbar)
   WalkieTalkieRegistry.cs    ← alle Geräte + lokaler PTT-Zustand
   WalkieRadioSync.cs         ← Vivox-Funkkanäle joinen/lassen
-  WalkieAudioDelay.cs        ← lokales Delay
-
-Runtime/Voice/
-  IVoiceBackend.cs           ← VoicePathKind, IVoiceRadioBackend
-  VivoxVoiceBackend.cs       ← Multi-Kanal + TransmissionMode.Single
-  VoiceRuntime.cs            ← Radio-Pfad auswerten, Mund dämpfen
-  VoiceEmitter.cs            ← PathKind + Delay-Hook
+  WalkieSidetoneCapture.cs   ← eigene Stimme während PTT
+  WalkieTalkArbitration.cs   ← First-Speaker-Lock
+  WalkieRadioBus.cs          ← Fan-out an alle Empfangs-Geräte
+  WalkieDeviceOutput.cs      ← Lautsprecher + Delay am Gerät
+  WalkieRadioTapFeed.cs      ← Vivox-Funk → Bus
 ```
 
 Tests: `Tests/EditMode/WalkieRulesTests.cs`
 
 ---
+
+
 
 ## Checkliste Game-Repo
 
@@ -151,6 +178,8 @@ Tests: `Tests/EditMode/WalkieRulesTests.cs`
 - [ ] Package per Git-URL updaten und Hörtest zu zweit (ein Gerät am Boden, eines in der Hand)
 
 ---
+
+
 
 ## Bewusst später / nicht V1
 

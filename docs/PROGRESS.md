@@ -4,9 +4,9 @@
 
 **Phase 4 in Arbeit — Walkie-Talkie**
 
-Status: Package-API und Vivox-Funkkanal sind drin (Half-Duplex, Delay, Empfang am Gerät). Optik/Input/Pickup bleiben im Game-Repo — siehe `docs/walkie-talkie-game-integration.md`.
+Status: Sidetone, Fan-out an alle Empfangs-Geraete und First-Speaker-Lock sind drin. Optik/Input bleiben im Game-Repo — siehe `docs/walkie-talkie-game-integration.md`.
 
-Nächster Schritt: Hörtest mit zwei Walkies; danach Checkboxen unten abhaken.
+Nächster Schritt: Package pushen, im Spiel updaten, allein Sidetone am Boden-Walkie testen; zu zweit First-Speaker.
 
 ---
 

@@ -133,7 +133,10 @@ namespace Earshot.Voice
             if (pathKind == VoicePathKind.Radio)
             {
                 radioDelay = gameObject.AddComponent<WalkieAudioDelay>();
-                radioDelay.SetDelaySeconds(WalkieTalkieRegistry.ActiveTransmissionDelaySeconds);
+                radioDelay.SetDelaySeconds(0f);
+
+                var feed = gameObject.AddComponent<WalkieRadioTapFeed>();
+                feed.Emitter = this;
             }
 
             current = VoiceSample.Default;

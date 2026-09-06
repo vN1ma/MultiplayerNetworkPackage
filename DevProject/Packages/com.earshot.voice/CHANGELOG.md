@@ -10,8 +10,10 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 - Phase 4 Walkie-Talkie: `EarshotWalkieTalkie`, Vivox-Funkkanal (`earshot.radio.*`),
   Half-Duplex, lokales Empfangs-Delay, Leak am Geraet, Mund-Daempfung beim Funken
+- Walkie Sidetone (eigene Stimme versetzt an anderen Geraeten), Fan-out an alle
+  Empfangs-Walkies, First-Speaker-Lock bei gleichzeitigem Funken
 - Mitnahme-Doku `docs/walkie-talkie-game-integration.md` fuer Prefab/Input im Spiel
-- EditMode-Tests `WalkieRulesTests`
+- EditMode-Tests `WalkieRulesTests`, `WalkieTalkArbitrationTests`
 - Paket-Grundgeruest, netzwerkunabhaengig: `IProximityVoicePlayer` als Bruecke zu einem
   beliebigen Multiplayer-Framework, `VoiceRoster` als generisches Register
 - `EarshotProximityVoice` als einzige Pflichtkomponente auf dem Player (Zero-Config- und
