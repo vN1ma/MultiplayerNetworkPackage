@@ -10,9 +10,13 @@ Neueste Einträge oben. Format (siehe `.clinerules/01-workflow.md`):
 ```
 
 
+## [2026-09-06] – Hoertest-Szene nach Assets, nicht ins Git-Paket
+- `Create Hearing Test Scene` speichert nach `Assets/EarshotHearingTest.unity`. Git-Pakete sind fuer Unity unveraenderlich; eine Szene im Paket laesst sich nicht oeffnen.
+- Betroffene Dateien: `Editor/HearingTestSceneBuilder.cs`, `Scenes/HearingTest.unity` (entfernt)
+
 ## [2026-09-06] – Hoertest-Szene (Flur, Tuer, Treppe)
-- Geschlossene Testetage: Flur, Raum rechts mit Tuer und Ton, Treppe nach oben, oben dasselbe. Waende ueberlappen an den Ecken. E schaltet den naechsten Ton, F die naechste Tuer. Menue `Earshot Voice / Create Hearing Test Scene` oder Szene `Scenes/HearingTest.unity`.
-- Betroffene Dateien: `Runtime/HearingTest/`, `Scenes/HearingTest.unity`, `Editor/HearingTestSceneBuilder.cs`
+- Geschlossene Testetage: Flur, Raum rechts mit Tuer und Ton, Treppe nach oben, oben dasselbe. Waende ueberlappen an den Ecken. E schaltet den naechsten Ton, F die naechste Tuer. Menue `Earshot Voice / Create Hearing Test Scene`.
+- Betroffene Dateien: `Runtime/HearingTest/`, `Editor/HearingTestSceneBuilder.cs`
 
 ## [2026-09-06] – Phase 3 Graph fertig (Treppen, Richtung, Authoring)
 - Treppen sind Portale zwischen Etagen (`VoicePortalKind.Stair`, `TravelLength`). Luftlinie durch die Decke bleibt Occlusion, solange keine Treppe verbindet. Stimme kommt aus der ersten Tuer/Ecke; Offset-Strahlen verhindern den Rahmenstreifschuss.

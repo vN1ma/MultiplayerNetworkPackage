@@ -6,7 +6,7 @@
 
 Status: Treppen, Richtung aus der Tuer, Offset-Faecher und Autorentools sind drin. Zonen/Portale bleiben optional.
 
-Nächster Schritt: Phase 4 Walkie-Talkie. Hoertest: Szene `HearingTest` im Paket oder Menue `Earshot Voice / Create Hearing Test Scene`.
+Nächster Schritt: Phase 4 Walkie-Talkie. Hoertest: Menue `Earshot Voice / Create Hearing Test Scene` — Szene liegt danach unter `Assets/EarshotHearingTest.unity`.
 
 ---
 

@@ -28,8 +28,9 @@ das Paket updaten und `packages-lock.json` mitcommitten.
 Die Komponente tritt dem Sprachkanal selbst bei, erkennt lokal/remote an Netcode/Mirror/Photon
 und haengt Stimmen an die Avatare. Vivox und Authentication muessen im Cloud-Projekt aktiv sein.
 
-Hoertest: Menue `Earshot Voice / Create Hearing Test Scene` oder die Szene
-`Scenes/HearingTest.unity` oeffnen und Play. WASD, Maus, E Ton, F Tuer.
+Hoertest: Menue `Earshot Voice / Create Hearing Test Scene`. Die Szene landet
+unter `Assets/EarshotHearingTest.unity` (nicht im Paket — Git-Pakete sind
+schreibgeschuetzt). Dann Play. WASD, Maus, E Ton, F Tuer.
 
 Optional, nicht auf den Player: `Earshot Voice/Mute Hotkey`. Raeume und Tueren:
 `VoiceZone` / `VoicePortal` (Treppe = Kind Stair + Lauflaenge). Menue

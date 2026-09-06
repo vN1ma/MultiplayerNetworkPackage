@@ -6,28 +6,34 @@ namespace Earshot.Voice.Editor
 {
     public static class HearingTestSceneBuilder
     {
-        private const string ScenePath =
-            "Packages/com.earshot.voice/Scenes/HearingTest.unity";
+        private const string ScenePath = "Assets/EarshotHearingTest.unity";
 
         public static void Create()
         {
+            if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
+
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             var root = new GameObject("HearingTest");
             var level = root.AddComponent<HearingTestLevel>();
             level.Build();
 
-            System.IO.Directory.CreateDirectory(
-                System.IO.Path.GetDirectoryName(ScenePath) ?? "Packages/com.earshot.voice/Scenes");
-
             EditorSceneManager.MarkSceneDirty(scene);
-            EditorSceneManager.SaveScene(scene, ScenePath);
-            EditorSceneManager.OpenScene(ScenePath);
+            if (!EditorSceneManager.SaveScene(scene, ScenePath))
+            {
+                EditorUtility.DisplayDialog(
+                    "Earshot Voice",
+                    "Szene konnte nicht unter Assets gespeichert werden.",
+                    "OK");
+                return;
+            }
+
+            AssetDatabase.Refresh();
             Selection.activeGameObject = root;
             EditorUtility.DisplayDialog(
                 "Earshot Voice",
-                "Hoertest-Szene liegt unter " + ScenePath +
-                "\n\nPlay: WASD + Maus, E Ton, F Tuer.\n" +
-                "Raeume sind geschlossen (Waende ueberlappen).",
+                "Hoertest liegt in deinem Projekt:\n" + ScenePath +
+                "\n\nIm Project-Fenster unter Assets. Dann Play.\n" +
+                "WASD + Maus, E Ton, F Tuer.",
                 "OK");
         }
     }

@@ -10,6 +10,11 @@ Auswirkung: welches Arbeitspaket/welche Datei betroffen ist
 ```
 
 
+## [2026-09-06] Hoertest-Szene gehoert nach Assets
+Kontext: Unity-Fehler "It is not allowed to open a scene in a read-only package" und Warnung zu immutable packages, als die Szene unter `Packages/com.earshot.voice/Scenes` erzeugt wurde.
+Entscheidung/Fakt: Git-URL-Pakete sind schreibgeschuetzt. Erzeugte Szenen liegen im Spiel unter `Assets/`.
+Auswirkung: `HearingTestSceneBuilder` speichert nach `Assets/EarshotHearingTest.unity`.
+
 ## [2026-09-06] Alles laeuft ueber EarshotProximityVoice
 Kontext: Nutzer will keinen Spielcode fuer Connect/Bind. Leitprinzip: eine Komponente.
 Entscheidung/Fakt: Die Komponente verbindet selbst, liest Besitz per Reflection (kein Netcode in der asmdef) und ordnet Stimmen zu. Zwei Spieler ohne synchronisierte UGS-ID nutzen den bestehenden 1:1-Fallback in `VoiceRuntime`.
