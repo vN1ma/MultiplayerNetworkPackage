@@ -1,0 +1,41 @@
+// Beispiel: Netcode for GameObjects. Diese Datei NICHT einfach so kompilieren.
+// 1. In dein Spiel-Assembly kopieren und in .cs umbenennen.
+// 2. Auf denselben Character-Prefab legen wie ProxVoicePlayer.
+// 3. Channel-Name in deinem Session-Code an ProxVoice.ConnectAsync uebergeben.
+//
+// using Unity.Collections;
+// using Unity.Netcode;
+// using Unity.Services.Authentication;
+// using Earshot.Proximity;
+//
+// public class ProxVoiceNetcodeGlue : NetworkBehaviour
+// {
+//     private readonly NetworkVariable<FixedString64Bytes> ugsPlayerId = new(
+//         writePerm: NetworkVariableWritePermission.Owner);
+//
+//     private ProxVoicePlayer voice;
+//
+//     public override void OnNetworkSpawn()
+//     {
+//         voice = GetComponent<ProxVoicePlayer>();
+//
+//         if (IsOwner)
+//         {
+//             string id = AuthenticationService.Instance.PlayerId;
+//             ugsPlayerId.Value = id;
+//             voice.Bind(id, local: true);
+//         }
+//         else
+//         {
+//             ApplyRemote();
+//             ugsPlayerId.OnValueChanged += (_, __) => ApplyRemote();
+//         }
+//     }
+//
+//     private void ApplyRemote()
+//     {
+//         string id = ugsPlayerId.Value.ToString();
+//         if (string.IsNullOrEmpty(id)) return;
+//         voice.Bind(id, local: false);
+//     }
+// }

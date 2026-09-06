@@ -10,6 +10,11 @@ Neueste Einträge oben. Format (siehe `.clinerules/01-workflow.md`):
 ```
 
 
+## [2026-09-06] – Neuesten Stand des Proximity-Chat-Exports gesichert
+- `ProximityChatExport/` enthält die zuletzt bearbeitete, netzwerk-unabhängige Voice-Iteration (`ProxVoice`-Fassade mit `ConnectAsync`/Anonymous-SignIn, `ProxVoiceRoster`/`ProxVoicePlayer`, überarbeitete `VoiceRuntime`/`VoiceSessionLog`/`VivoxVoiceBackend`). Der Ordner war zuvor fälschlich als veralteter Entwurf eingestuft und gitignored — jetzt stattdessen committet. DevProject hält die ältere Voice-Version plus Test-Werkzeuge (`VoiceTestSpeaker`, `VoiceSessionRecorder`, `MppmDuoTester`).
+- Absolute lokale Pfade in `ANLEITUNG.md` durch Platzhalter ersetzt (Regel 04).
+- Betroffene Dateien: `ProximityChatExport/`, `.gitignore`, `docs/DECISIONS.md`
+
 ## [2026-09-06] – Snapshot vor Start von Phase 1 (Voice-Abkopplung)
 - Arbeitsstand des coop-Pakets gesichert, bevor der Umbau in `com.earshot.voice` beginnt: Session-Diagnostik (`VoiceSessionLog`, `VoiceSessionRecorder`), `VoiceTestSpeaker`, `VoiceTransparent`, MPPM-Duo-Tester, Playtest-Builder- und Voice-Korrekturen aus den Test-Sessionen sowie Multiplayer-Playmode/Tools-Pakete im DevProject. Neu im Repo: `.clinerules/`, Planungs-Dokumente (`docs/`) und dieses Changelog.
 - Lokale Voice-Session-Logs (`logss/`, `DevProject/EarshotLogs/`) und der frühere Export-Entwurf (`ProximityChatExport/`) über `.gitignore` ausgeschlossen.

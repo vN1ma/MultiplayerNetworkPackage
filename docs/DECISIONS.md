@@ -10,6 +10,11 @@ Auswirkung: welches Arbeitspaket/welche Datei betroffen ist
 ```
 
 
+## [2026-09-06] ProximityChatExport ist die neueste Voice-Iteration
+Kontext: Zeitstempel- und Inhaltsvergleich Export-Ordner vs. DevProject (21.08. 23:32–23:34 vs. 23:22; `ProxVoice.cs` zuletzt am 06.09. bearbeitet), bestätigt durch Nutzer
+Entscheidung/Fakt: `ProximityChatExport/` enthält die zuletzt bearbeitete Standalone-Fassung der Voice-Schicht ohne Netcode-Abhängigkeit (statische `ProxVoice`-Fassade, `ProxVoiceRoster`/`ProxVoicePlayer`, erweitertes Session-Logging). `DevProject/Packages/com.earshot.coop/Runtime/Voice/` ist der ältere Stand und bleibt Referenz für die Test-Werkzeuge (`VoiceTestSpeaker`, `VoiceSessionRecorder`, `MppmDuoTester`).
+Auswirkung: Phase 1 der Voice-Abkopplung baut auf dem Export-Stand auf (u. a. `Earshot.Proximity` → `Earshot.Voice` umbenennen, `ProxVoiceRoster` → generisches `IProximityVoicePlayer`-Register), nicht auf dem DevProject-Voice-Ordner.
+
 ## [2026-09-06] NGO-ID-Sync-Muster für den Netcode-Adapter
 Kontext: Früherer Abspaltungs-Entwurf im (lokalen, gitignored) Ordner `ProximityChatExport/` – Beispiel `ProxVoiceNetcodeGlue`
 Entscheidung/Fakt: UGS-Player-ID über eine owner-schreibende `NetworkVariable<FixedString64Bytes>` synchronisieren; Owner bindet beim Spawn mit `AuthenticationService.Instance.PlayerId`, Remotes reagieren auf `OnValueChanged` und binden nach. Einfachstes Muster ganz ohne RPCs.

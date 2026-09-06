@@ -1,0 +1,18 @@
+{
+  "name": "com.earshot.proximity",
+  "version": "1.0.0",
+  "displayName": "Earshot Proximity Chat",
+  "description": "Standalone proximity voice chat for an existing multiplayer game. Vivox transports the audio; distance, occlusion, doors and rooms are applied locally. No session, Relay or Netcode code included.",
+  "unity": "6000.0",
+  "keywords": [
+    "voice chat",
+    "proximity chat",
+    "vivox"
+  ],
+  "author": {
+    "name": "Earshot"
+  },
+  "dependencies": {
+    "com.unity.services.vivox": "16.10.0"
+  }
+}
