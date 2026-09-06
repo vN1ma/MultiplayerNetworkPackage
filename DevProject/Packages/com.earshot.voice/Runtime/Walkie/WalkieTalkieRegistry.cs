@@ -27,6 +27,9 @@ namespace Earshot.Voice
 
         public static float ActiveTransmissionDelaySeconds { get; private set; } = 0.2f;
 
+        /// <summary>Extra-Daempfung nur fuer lokales Sidetone (Feedback-Bremse).</summary>
+        public static float ActiveSidetoneWorldVolume { get; private set; } = 0.4f;
+
         public static event Action StateChanged;
 
         internal static void Register(EarshotWalkieTalkie device)
@@ -64,6 +67,7 @@ namespace Earshot.Voice
                 LocalTransmitChannelId = device.ChannelId;
                 ActiveMouthDampening = device.MouthVolumeWhileTransmitting;
                 ActiveTransmissionDelaySeconds = device.TransmissionDelaySeconds;
+                ActiveSidetoneWorldVolume = device.SidetoneWorldVolume;
             }
             else if (!transmitting && (device == null || IsSameTransmitDevice(device)))
             {
@@ -185,6 +189,42 @@ namespace Earshot.Voice
             return held ?? any;
         }
 
+        /// <summary>
+        /// Wenn das Spiel beim Ablegen PTT nicht sauber beendet, hier nachziehen.
+        /// </summary>
+        internal static void EnsureLocalTransmitStillValid()
+        {
+            if (!LocalIsTransmitting) return;
+
+            for (int i = 0; i < devices.Count; i++)
+            {
+                var d = devices[i];
+                if (d != null &&
+                    d.IsTransmitting &&
+                    d.PoweredOn &&
+                    d.CanTransmit &&
+                    string.Equals(d.ChannelId, LocalTransmitChannelId, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+            }
+
+            for (int i = 0; i < devices.Count; i++)
+            {
+                var d = devices[i];
+                if (d != null && d.IsTransmitting)
+                {
+                    d.SetTransmitting(false);
+                }
+            }
+
+            if (LocalIsTransmitting)
+            {
+                ClearLocalTransmit();
+                RaiseChanged();
+            }
+        }
+
         private static bool IsSameTransmitDevice(EarshotWalkieTalkie device)
         {
             return device != null &&
@@ -218,6 +258,7 @@ namespace Earshot.Voice
             ClearLocalTransmit();
             ActiveMouthDampening = 0.12f;
             ActiveTransmissionDelaySeconds = 0.2f;
+            ActiveSidetoneWorldVolume = 0.35f;
         }
     }
 }

@@ -132,8 +132,11 @@ namespace Earshot.Voice
             source.loop = true;
             source.spatialBlend = 1f;
             source.dopplerLevel = 0f;
-            source.rolloffMode = AudioRolloffMode.Linear;
+            // Entfernung nur ueber unser Volume — Unity-Rolloff wuerde sonst doppelt/komisch daempfen.
+            source.rolloffMode = AudioRolloffMode.Custom;
+            source.SetCustomCurve(AudioSourceCurveType.CustomRolloff, AnimationCurve.Constant(0f, 1f, 1f));
             source.minDistance = 0.4f;
+            source.maxDistance = 50f;
             source.mute = true;
             source.volume = 0f;
 
@@ -199,10 +202,22 @@ namespace Earshot.Voice
             delaySeconds = walkie.TransmissionDelaySeconds;
 
             bool active = ShouldOutput();
+            bool sidetone = IsSidetoneMode();
             float volume = 0f;
             if (active)
             {
-                volume = walkie.RadioVolume * DistanceFalloff() * EarshotVoice.HeardVoiceVolume;
+                float baseVol = sidetone
+                    ? WalkieTalkieRegistry.ActiveSidetoneWorldVolume
+                    : walkie.RadioVolume;
+                volume = baseVol * DistanceFalloff() * EarshotVoice.HeardVoiceVolume;
+
+                // Nah am Lautsprecher + offenes Mikro = Feedback. Sidetone in der Naehe leiser.
+                if (sidetone && TryListenerPosition(out Vector3 listener))
+                {
+                    float d = Vector3.Distance(listener, transform.position);
+                    float nearDuck = Mathf.Clamp01(d / 1.8f);
+                    volume *= Mathf.Lerp(0.25f, 1f, nearDuck);
+                }
             }
 
             bool audible = volume > 0.0001f;
@@ -212,19 +227,21 @@ namespace Earshot.Voice
             if (highPass != null) highPass.enabled = audible;
         }
 
+        private bool IsSidetoneMode()
+        {
+            return WalkieTalkieRegistry.LocalIsTransmitting &&
+                   string.Equals(
+                       WalkieTalkieRegistry.LocalTransmitChannelId,
+                       walkie.ChannelId,
+                       System.StringComparison.OrdinalIgnoreCase);
+        }
+
         private bool ShouldOutput()
         {
             if (walkie == null || !walkie.PoweredOn) return false;
             if (walkie.IsTransmitting) return false;
 
-            if (WalkieTalkieRegistry.LocalIsTransmitting &&
-                string.Equals(
-                    WalkieTalkieRegistry.LocalTransmitChannelId,
-                    walkie.ChannelId,
-                    System.StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
+            if (IsSidetoneMode()) return true;
 
             if (WalkieTalkieRegistry.LocalIsTransmitting) return false;
 
@@ -284,6 +301,13 @@ namespace Earshot.Voice
 
                 if (walkie == null || !walkie.PoweredOn || walkie.IsTransmitting)
                 {
+                    Silence(data);
+                    return;
+                }
+
+                if (inbox.Available < outputChannels)
+                {
+                    // Kein Nachschub: Delay nicht mit Nullen fuettern (Klicken/Tacken).
                     Silence(data);
                     return;
                 }

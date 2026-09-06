@@ -30,18 +30,24 @@ namespace Earshot.Voice
 
         [Header("Klang")]
         [SerializeField, Range(0.05f, 1f)]
-        [Tooltip("Lautstaerke der Funkstimme am Geraet.")]
-        private float radioVolume = 0.75f;
+        [Tooltip("Lautstaerke der Funkstimme am Geraet (fremde Stimmen).")]
+        private float radioVolume = 0.65f;
+
+        [SerializeField, Range(0.05f, 1f)]
+        [Tooltip("Wie laut du dich selbst am anderen Walkie hoerst (Sidetone). Niedriger = weniger Feedback.")]
+        private float sidetoneWorldVolume = 0.35f;
 
         [SerializeField, Range(100f, 4000f)]
-        private float highPassHz = 800f;
+        [Tooltip("Unteres Funkband. Niedriger = weniger roboterhaft.")]
+        private float highPassHz = 300f;
 
         [SerializeField, Range(1000f, 8000f)]
-        private float lowPassHz = 3500f;
+        [Tooltip("Oberes Funkband. Hoeher = weniger dumpf/roboterhaft.")]
+        private float lowPassHz = 5200f;
 
         [SerializeField, Range(0f, 1.5f)]
         [Tooltip("Lokales Walkie-Delay: Stimme kommt leicht versetzt am Empfaenger an.")]
-        private float transmissionDelaySeconds = 0.2f;
+        private float transmissionDelaySeconds = 0.18f;
 
         [SerializeField, Range(0f, 1f)]
         [Tooltip("Mund-/Naehe-Stimme des Senders, solange er funkt (Funk ersetzt Mund).")]
@@ -70,6 +76,8 @@ namespace Earshot.Voice
         public Transform AudioAnchor => audioAnchor != null ? audioAnchor : transform;
 
         public float RadioVolume => radioVolume;
+
+        public float SidetoneWorldVolume => Mathf.Clamp(sidetoneWorldVolume, 0.05f, 1f);
 
         public float HighPassHz => highPassHz;
 
@@ -209,6 +217,7 @@ namespace Earshot.Voice
             transmissionDelaySeconds = WalkieRules.ClampDelaySeconds(transmissionDelaySeconds);
             mouthVolumeWhileTransmitting = Mathf.Clamp01(mouthVolumeWhileTransmitting);
             radioVolume = Mathf.Clamp(radioVolume, 0.05f, 1f);
+            sidetoneWorldVolume = Mathf.Clamp(sidetoneWorldVolume, 0.05f, 1f);
             maxHearingDistance = Mathf.Max(1f, maxHearingDistance);
             if (highPassHz > lowPassHz) lowPassHz = highPassHz;
         }
