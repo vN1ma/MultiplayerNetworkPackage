@@ -220,11 +220,12 @@ namespace Earshot.Voice
 
             if (VivoxService.Instance.IsLoggedIn) return;
 
+            // DisableAutomaticChannelTransmissionSwap existiert in Vivox 16.10 noch nicht
+            // (nur in Doku-Kommentaren). Nach jedem Funk-Join setzen wir die Sendung
+            // explizit wieder auf Proximity bzw. den aktiven Walkie-Kanal.
             var options = new LoginOptions
             {
-                DisplayName = string.IsNullOrWhiteSpace(displayName) ? "Player" : displayName,
-                // Mehrere Kanaele: sonst springt Vivox die Sendung auf den zuletzt betretenen.
-                DisableAutomaticChannelTransmissionSwap = true
+                DisplayName = string.IsNullOrWhiteSpace(displayName) ? "Player" : displayName
             };
 
             EarshotVoiceLog.Info("Anmeldung bei Vivox laeuft.");
