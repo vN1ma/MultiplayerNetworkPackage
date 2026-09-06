@@ -3,9 +3,8 @@ using UnityEngine;
 namespace Earshot.Voice
 {
     /// <summary>
-    /// Optionale Hilfe fuer Szenen ohne eigenes Sitzungs-Skript: verbindet beim Aktivieren
-    /// und trennt beim Deaktivieren. Nicht Teil des Standardwegs — wer selbst
-    /// <see cref="EarshotVoice.ConnectAsync"/> aufruft, braucht diese Komponente nicht.
+    /// Optionale Hilfe fuer Testszene ohne Player. Im Spiel verbindet
+    /// <see cref="EarshotProximityVoice"/> selbst — diese Komponente dann nicht verwenden.
     /// <para>
     /// Auf ein Objekt in der Spielszenen legen, nicht ins Hauptmenue. Der Kanalname
     /// muss bei allen Mitspielern identisch sein.

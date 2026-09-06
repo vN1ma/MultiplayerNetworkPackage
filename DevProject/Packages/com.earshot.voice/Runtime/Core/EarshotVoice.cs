@@ -10,10 +10,8 @@ namespace Earshot.Voice
     /// <summary>
     /// Die oeffentliche Schnittstelle von Earshot Voice.
     /// <para>
-    /// Diese Schicht haengt sich an KEINE Sitzung von selbst an - anders als ein volles
-    /// Multiplayer-Framework kennt dieses Paket keinen eigenen Sitzungsbegriff. Das eigene
-    /// Spiel ruft <see cref="ConnectAsync"/> auf, sobald alle im selben Match sind, und
-    /// <see cref="DisconnectAsync"/> beim Verlassen.
+    /// Der Standardweg ist <see cref="EarshotProximityVoice"/>: die Komponente verbindet
+    /// und trennt selbst. <see cref="ConnectAsync"/> bleibt fuer Tests und Advanced.
     /// </para>
     /// </summary>
     public static class EarshotVoice
@@ -28,6 +26,9 @@ namespace Earshot.Voice
         private static float heardVoiceVolume = 1f;
 
         public static bool IsConnected => active != null && active.IsConnected;
+
+        /// <summary>Aktiver Kanal, oder leer wenn niemand verbunden ist.</summary>
+        public static string ActiveChannel { get; private set; }
 
         /// <summary>
         /// Unity Authentication PlayerId des lokalen Spielers, sobald er angemeldet ist.
@@ -358,20 +359,26 @@ namespace Earshot.Voice
                 return;
             }
 
-            if (active != null) return;
+            string trimmed = channelName.Trim();
+            if (active != null)
+            {
+                if (string.Equals(ActiveChannel, trimmed, StringComparison.Ordinal)) return;
+                await DisconnectInternalAsync();
+            }
 
             await EnsureSignedInAsync(signInAnonymouslyIfNeeded);
 
-            VoiceSessionLog.BeginSession(channelName, displayName);
+            VoiceSessionLog.BeginSession(trimmed, displayName);
 
             active = backendFactory();
+            ActiveChannel = trimmed;
 
             var runtime = VoiceRuntime.EnsureExists();
             runtime.ListenerOverride = pendingListenerOverride;
             runtime.AttachBackend(active);
 
             string name = string.IsNullOrWhiteSpace(displayName) ? "Player" : displayName;
-            await active.ConnectAsync(channelName.Trim(), name);
+            await active.ConnectAsync(trimmed, name);
 
             active.MicrophoneMuted = desiredMuteState || settings.MicrophoneMutedOnJoin;
 
@@ -386,7 +393,7 @@ namespace Earshot.Voice
             }
 
             EarshotVoiceLog.Info(
-                "Earshot Voice verbunden. Kanal='" + channelName +
+                "Earshot Voice verbunden. Kanal='" + trimmed +
                 "'  lokale PlayerId='" + LocalPlayerId + "'");
         }
 
@@ -396,6 +403,7 @@ namespace Earshot.Voice
 
             var backend = active;
             active = null;
+            ActiveChannel = null;
 
             VoiceRuntime.Instance?.DetachBackend();
             VoiceSessionLog.EndSession("Kanal verlassen.");

@@ -23,8 +23,29 @@ namespace Earshot.Voice
         /// <summary>Position des Sprechers (Mundhoehe des Avatars).</summary>
         public Vector3 SpeakerPosition;
 
-        /// <summary>Abstand in Metern zwischen Zuhoerer und Sprecher.</summary>
+        /// <summary>Abstand in Metern zwischen Zuhoerer und Sprecher (Luftlinie).</summary>
         public float Distance;
+
+        /// <summary>
+        /// Abstand, den die Entfernungsdaempfung benutzt. Gleich <see cref="Distance"/>,
+        /// oder die Weglaenge durch den Raum-Portal-Graph, wenn der Graph gewinnt.
+        /// </summary>
+        public float HearingDistance;
+
+        /// <summary>Wahr, wenn der Schall den Graph-Weg nimmt statt die Luftlinie.</summary>
+        public bool UsedGraph;
+
+        /// <summary>
+        /// Wo die Stimme herzukommen scheint. Bei Graph-Weg die erste Tuer/Ecke,
+        /// sonst die Sprecherposition.
+        /// </summary>
+        public Vector3 ApparentPosition;
+
+        /// <summary>
+        /// 0 = alle Tueren auf dem Graph-Weg offen, 1 = alle zu.
+        /// Mehrere geschlossene Tueren addieren sich, geclippt auf 1.
+        /// </summary>
+        public float GraphClosedness;
 
         /// <summary>
         /// Wie stark feste Geometrie die direkte Linie blockiert.

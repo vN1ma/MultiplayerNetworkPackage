@@ -19,3 +19,4 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   und die Walkie-Talkie-Phase
 - Optionale Komponenten `EarshotVoiceMuteHotkey` und `EarshotVoiceConnectInScene`
 - EditMode-Tests fuer `VoiceRoster` und `VoiceSample`
+- Raum-Portal-Graph: Dijkstra durch `VoiceZone`/`VoicePortal`, `GraphModifier`

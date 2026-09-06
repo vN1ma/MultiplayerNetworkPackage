@@ -10,6 +10,16 @@ Neueste Einträge oben. Format (siehe `.clinerules/01-workflow.md`):
 ```
 
 
+## [2026-09-06] – Eine Komponente verbindet und ordnet Stimmen selbst
+- `EarshotProximityVoice` tritt dem Sprachkanal automatisch bei, erkennt lokal/remote an Netcode/Mirror/Photon/FishNet (ohne diese Assemblies zu referenzieren) und haengt Vivox-Stimmen an die Avatare. `ConnectAsync`/`Bind` sind kein Pflichtschritt mehr.
+- Kanal: Inspector-Feld, sonst Unity-Lobby-ID, sonst Settings, sonst `earshot`.
+- Betroffene Dateien: `EarshotProximityVoice.cs`, `NetworkOwnershipProbe.cs`, `VoiceChannelResolver.cs`, `EarshotVoice.cs`, `EarshotVoiceSettings.cs`
+
+## [2026-09-06] – Raum-Portal-Graph (Phase 3, Kern)
+- Zonen und Portale bilden zur Laufzeit einen Graphen. Freie Sichtlinie bleibt der direkte Weg; sonst Dijkstra durch Tueren. Geschlossene Tueren machen den Weg teurer und dumpfer, mehrere Tueren addieren sich. Ohne Zonen in der Szene aendert sich nichts.
+- Entfernungsdaempfung nutzt `HearingDistance` (Luftlinie oder Graph-Weg). Stimme kommt bei Graph-Weg aus der ersten Tuer.
+- Betroffene Dateien: `Runtime/Voice/Graph/`, `GraphModifier.cs`, `VoicePipeline.cs`, `VoiceContext.cs`, `VoiceEmitter.cs`
+
 ## [2026-09-06] – Unity-.meta-Dateien fuer com.earshot.voice
 - Git-Pakete sind fuer Unity unveraenderlich; ohne mitgelieferte `.meta` ignoriert der Editor alle Skripte. Metas fuer Dateien und Ordner nachgetragen.
 - Betroffene Dateien: `DevProject/Packages/com.earshot.voice/**/*.meta`

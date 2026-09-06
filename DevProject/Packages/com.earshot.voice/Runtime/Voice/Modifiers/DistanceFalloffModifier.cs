@@ -30,11 +30,12 @@ namespace Earshot.Voice.Modifiers
         {
             if (context.Profile == null) return;
 
-            sample.Volume *= context.Profile.EvaluateDistanceFalloff(context.Distance);
+            float range = context.HearingDistance > 0f ? context.HearingDistance : context.Distance;
+            sample.Volume *= context.Profile.EvaluateDistanceFalloff(range);
 
             if (airAbsorption <= 0f) return;
 
-            float t = Mathf.Clamp01(context.Distance / context.Profile.MaxHearingDistance);
+            float t = Mathf.Clamp01(range / context.Profile.MaxHearingDistance);
             float cutoff = Mathf.Lerp(VoiceSample.NoLowPass, distantCutoffHz, t * airAbsorption);
             sample.LowPassHz = Mathf.Min(sample.LowPassHz, cutoff);
         }

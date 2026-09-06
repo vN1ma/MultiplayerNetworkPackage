@@ -27,6 +27,8 @@ namespace Earshot.Voice
 
         private readonly RaycastHit[] hitBuffer = new RaycastHit[MaxHits];
         private readonly Collider[] zoneBuffer = new Collider[MaxHits];
+        private readonly System.Collections.Generic.List<VoicePortal> graphPortals =
+            new System.Collections.Generic.List<VoicePortal>(8);
 
         private bool warnedAboutEmptyProfile;
 
@@ -113,8 +115,56 @@ namespace Earshot.Voice
             context.ListenerZone = VoiceZone.FindAt(listenerPosition, profile.ZoneLayers, zoneBuffer);
             context.SpeakerZone = VoiceZone.FindAt(speakerPosition, profile.ZoneLayers, zoneBuffer);
             context.SameZone = context.ListenerZone == context.SpeakerZone;
+            context.HearingDistance = context.Distance;
+            context.ApparentPosition = speakerPosition;
+
+            TryApplyGraph(ref context);
 
             return context;
+        }
+
+        /// <summary>
+        /// Freie Sichtlinie bleibt der Schnellpfad. Nur wenn eine Wand im Weg ist
+        /// und beide in Zonen stehen, darf der Graph den Umweg ueber Tueren nehmen.
+        /// Ohne Zonen/Portale aendert sich nichts — Occlusion bleibt der Fallback.
+        /// </summary>
+        private void TryApplyGraph(ref VoiceContext context)
+        {
+            if (context.OcclusionAmount <= 0f) return;
+            if (context.SameZone) return;
+            if (context.ListenerZone == null || context.SpeakerZone == null) return;
+
+            if (!VoiceGraph.TryFindPath(
+                    context.ListenerZone,
+                    context.SpeakerZone,
+                    graphPortals,
+                    out _))
+            {
+                return;
+            }
+
+            context.UsedGraph = true;
+            context.OcclusionAmount = 0f;
+
+            float length = 0f;
+            float closed = 0f;
+            Vector3 previous = context.ListenerPosition;
+
+            for (int i = 0; i < graphPortals.Count; i++)
+            {
+                var portal = graphPortals[i];
+                Vector3 at = VoiceGraph.PortalPosition(portal);
+                length += Vector3.Distance(previous, at);
+                previous = at;
+                if (portal != null) closed += 1f - portal.Openness;
+            }
+
+            length += Vector3.Distance(previous, context.SpeakerPosition);
+            context.HearingDistance = length;
+            context.GraphClosedness = Mathf.Clamp01(closed);
+            context.ApparentPosition = graphPortals.Count > 0
+                ? VoiceGraph.PortalPosition(graphPortals[0])
+                : context.SpeakerPosition;
         }
 
         /// <summary>

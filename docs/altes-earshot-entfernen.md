@@ -218,9 +218,10 @@ Abhaengigkeit mit.
 3. Die geaenderte `packages-lock.json` im **Spiel-Repo** committen und pushen.
    Erst dann haben die anderen den neuen Stand.
 
-### 8.2 Settings (einmal)
+### 8.2 Settings (optional)
 
-Nicht das alte `EarshotSettings` wiederverwenden.
+Ohne Asset gelten Laufzeit-Standardwerte. Nur anlegen, wenn ihr Hoerweite oder
+Profil aendern wollt. Nicht das alte `EarshotSettings` wiederverwenden.
 
 1. Im Project-Fenster Rechtsklick → `Create > Earshot Voice > Voice Profile`
 2. Speichern z.B. unter `Assets/EarshotVoice/DefaultVoiceProfile.asset`
@@ -236,59 +237,19 @@ Auf **jeden** spielbaren Charakter (lokal und remote), Root oder Kopf:
 `Add Component` → **Earshot Voice / Proximity Voice**
 
 Mehr muss am Prefab nicht stehen. Voice Anchor leer lassen, ausser der Mund
-sitzt an einem Kind namens nicht `Head`/`Camera` — dann das Kopf-Transform
-reinziehen.
+sitzt an einem Kind, das nicht `Head`/`Camera` heisst — dann das Kopf-Transform
+reinziehen. Die Komponente muss auf demselben Objekt (oder einem Kind) sitzen
+wie euer `NetworkObject` / PhotonView.
 
-### 8.4 Verbinden, sobald alle im Match sind
+Kein `ConnectAsync`, kein `Bind`, kein zweites Skript.
 
-Irgendwo in eurem Sitzungsstart (nicht im Hauptmenue):
-
-```csharp
-using Earshot.Voice;
-
-await EarshotVoice.ConnectAsync(lobbyOderMatchId, spielerName);
-```
-
-`lobbyOderMatchId` muss bei allen Spielern **derselbe** String sein.
-Beim Verlassen: `await EarshotVoice.DisconnectAsync();`
-
-Wer das noch nicht verdrahten will: leeres Objekt in der **Spielszene**,
-Komponente **Earshot Voice / Connect In Scene (optional)**, gleichen
-Kanalnamen eintragen.
-
-### 8.5 Identitaet im eigenen Multiplayer (wichtig)
-
-Ohne eigenes Netzwerk reicht Zero-Config: der eine Avatar gilt als lokal,
-die PlayerId kommt von Unity Authentication.
-
-Mit eurem eigenen Multiplayer (Netcode, Mirror, Photon, …) **muss** nach
-Spawn/Sync `Bind` laufen, sonst halten sich alle Avatare fuer lokal:
-
-```csharp
-using Earshot.Voice;
-using Unity.Services.Authentication;
-
-var voice = GetComponent<EarshotProximityVoice>();
-
-// Auf dem eigenen Charakter:
-voice.Bind(AuthenticationService.Instance.PlayerId, local: true, spielerName);
-
-// Auf jedem anderen:
-voice.Bind(synchronisierteUgsPlayerId, local: false, nameDesAnderen);
-```
-
-Die synchronisierte ID ist die Unity-Authentication-`PlayerId` des jeweiligen
-Spielers, nicht die Netcode-Clientnummer. Die muessen ihr selbst ueber euer
-Netzwerk schicken (NetworkVariable, RPC, euer eigenes Sync).
-
-### 8.6 Unity Cloud
+### 8.4 Unity Cloud
 
 Wie bisher: dasselbe Cloud-Projekt, Vivox und Authentication an.
 `Edit > Project Settings > Services` — nach dem Linken neu bauen.
 
-### 8.7 Kurz testen
+### 8.5 Kurz testen
 
 1. `Earshot Voice / Voice Test Speaker` auf ein Objekt hinter einer Wand —
    Play, heranlaufen: Distanz und Dumpf ohne zweiten Rechner.
-2. Zu zweit: `ConnectAsync` mit gleichem Kanal, `Bind` auf beiden Avataren,
-   Internet-Build oder zwei Rechner.
+2. Zu zweit in dieselbe Lobby. Die eine Komponente reicht. Internet-Build oder zwei Rechner.

@@ -5,22 +5,8 @@ namespace Earshot.Voice
 {
     /// <summary>
     /// Die einzige Pflichtkomponente von Earshot Voice. Auf jeden spielbaren Charakter
-    /// setzen (lokal und remote) - mehr Verdrahtung braucht es im Standardfall nicht.
-    /// <para>
-    /// <b>Zero-Config:</b> Ohne jede weitere Einstellung gilt dieser Avatar als der eigene
-    /// (<see cref="IsLocalPlayer"/> = wahr), und die Spieler-ID wird automatisch aus
-    /// <see cref="EarshotVoice.LocalPlayerId"/> uebernommen, sobald die Anmeldung bei Unity
-    /// Services durch ist. Das ist fuer ein Spiel ohne eigenes Multiplayer-Framework bereits
-    /// die vollstaendige Einrichtung.
-    /// </para>
-    /// <para>
-    /// <b>Advanced:</b> Ein eigener Netzwerk-Adapter (z.B. fuer Netcode, Mirror, Photon)
-    /// ruft <see cref="Bind"/> auf, sobald die echte Identitaet feststeht - typischerweise
-    /// "lokal = Owner, ID = die eigene UGS-PlayerId" auf dem Besitzer und "lokal = falsch,
-    /// ID = die synchronisierte PlayerId" auf allen anderen. Das ueberschreibt den
-    /// Zero-Config-Zustand vollstaendig; die Inspector-Felder lassen sich fuer denselben
-    /// Zweck auch manuell setzen, wenn kein Adapter existiert.
-    /// </para>
+    /// setzen (lokal und remote). Verbindung, Besitz und Stimmen-Zuordnung laufen
+    /// automatisch — kein <c>ConnectAsync</c> und kein <c>Bind</c> im Spielcode.
     /// </summary>
     [AddComponentMenu("Earshot Voice/Proximity Voice")]
     [DisallowMultipleComponent]
@@ -28,23 +14,30 @@ namespace Earshot.Voice
     {
         [Header("Zero-Config (Standard)")]
         [SerializeField]
-        [Tooltip("Ohne Netzwerk-Adapter: Dieser Avatar ist der eigene. Ein Adapter (z.B. NetcodeVoicePlayer) ueberschreibt das automatisch per Bind().")]
+        [Tooltip("Fallback, wenn kein Netzwerk-Objekt am Avatar haengt. Mit Netcode/Mirror/Photon setzt die Komponente das selbst.")]
         private bool isLocalPlayer = true;
 
-        [Header("Advanced (optional, ueberschreibt Zero-Config)")]
+        [Header("Advanced (optional)")]
         [SerializeField]
-        [Tooltip("Mund/Kopf. Stimmen werden an diesen Punkt gehaengt. Leer = dieses Transform.")]
+        [Tooltip("Mund/Kopf. Leer = Kind Head/Camera oder dieses Transform.")]
         private Transform voiceAnchor;
 
         [SerializeField]
-        [Tooltip("Unity Authentication PlayerId. Muss mit der Vivox-Teilnehmer-ID uebereinstimmen. Leer = wird bei isLocalPlayer automatisch befuellt, sobald die Anmeldung durch ist.")]
+        [Tooltip("Leer lassen. Wird automatisch gefuellt.")]
         private string playerId;
 
         [SerializeField]
-        [Tooltip("Nur fuer Logs. Kann der Anzeigename aus dem Spiel sein.")]
+        [Tooltip("Nur fuer Logs.")]
         private string displayName;
 
+        [SerializeField]
+        [Tooltip("Leer = Unity-Lobby-ID, sonst der Kanal aus den Settings, sonst 'earshot'. Nur setzen, wenn ihr einen festen Kanal wollt.")]
+        private string channelName;
+
         private bool waitingForLocalIdentity;
+        private bool identityLocked;
+        private bool startedSession;
+        private int runId;
 
         public Transform VoiceAnchor => voiceAnchor != null ? voiceAnchor : transform;
         public Vector3 Position => VoiceAnchor.position;
@@ -54,12 +47,11 @@ namespace Earshot.Voice
         public string DisplayName => string.IsNullOrWhiteSpace(displayName) ? name : displayName;
 
         /// <summary>
-        /// Verbindet diesen Avatar mit einer Spieler-ID. Von einem Netzwerk-Adapter
-        /// aufrufen, sobald die Identitaet bekannt ist (Spawn/Sync). Ersetzt den
-        /// Zero-Config-Zustand vollstaendig.
+        /// Advanced: Identitaet fest setzen. Im Standardweg unnoetig.
         /// </summary>
         public void Bind(string ugsPlayerId, bool local, string playerDisplayName = null)
         {
+            identityLocked = true;
             playerId = ugsPlayerId ?? string.Empty;
             isLocalPlayer = local;
             waitingForLocalIdentity = false;
@@ -87,41 +79,143 @@ namespace Earshot.Voice
         private void OnEnable()
         {
             EnsureVoiceAnchor();
-            VoiceRoster.Register(this);
 
-            if (HasIdentity)
+            if (!Application.isPlaying)
             {
-                VoiceRoster.NotifyIdentityReady(this);
+                VoiceRoster.Register(this);
+                return;
             }
-            else if (isLocalPlayer && Application.isPlaying)
-            {
-                // Zero-Config: die eigene PlayerId kommt erst, sobald Unity Services
-                // angemeldet ist. Bis dahin ohne Identitaet weiterlaufen - der Fallback
-                // in VoiceRuntime bindet eingehende Stimmen trotzdem an registrierte,
-                // nicht-lokale Avatare.
-                waitingForLocalIdentity = true;
-                _ = WaitForLocalIdentityAsync();
-            }
+
+            runId++;
+            _ = RunAsync(runId);
         }
 
         private void OnDisable()
         {
+            runId++;
             waitingForLocalIdentity = false;
             VoiceRoster.Unregister(this);
+
+            if (startedSession)
+            {
+                startedSession = false;
+                _ = EarshotVoice.DisconnectAsync();
+            }
         }
 
-        private async Task WaitForLocalIdentityAsync()
+        private async Task RunAsync(int id)
+        {
+            try
+            {
+                await ResolveOwnershipAsync(id);
+                if (!StillCurrent(id)) return;
+
+                VoiceRoster.Register(this);
+
+                if (isLocalPlayer) await BecomeLocalAndConnectAsync(id);
+                else await WaitForRemoteIdentityAsync(id);
+            }
+            catch (System.Exception ex)
+            {
+                if (StillCurrent(id))
+                {
+                    EarshotVoiceLog.Exception("Proximity Voice: Start fehlgeschlagen", ex);
+                }
+            }
+        }
+
+        private async Task ResolveOwnershipAsync(int id)
+        {
+            if (identityLocked) return;
+
+            const int spawnTimeoutMs = 8000;
+            const int unconfirmedRemoteMs = 600;
+            int waited = 0;
+
+            while (StillCurrent(id) && waited < spawnTimeoutMs)
+            {
+                var ownership = NetworkOwnershipProbe.Read(gameObject);
+                if (ownership.Status == NetworkOwnershipProbe.Status.Ready)
+                {
+                    ApplyOwnership(ownership.IsLocal);
+                    return;
+                }
+
+                if (ownership.Status == NetworkOwnershipProbe.Status.None)
+                {
+                    return;
+                }
+
+                if (!ownership.WaitingForSpawn && waited >= unconfirmedRemoteMs)
+                {
+                    ApplyOwnership(false);
+                    return;
+                }
+
+                await Task.Delay(50);
+                waited += 50;
+            }
+
+            if (StillCurrent(id) && NetworkOwnershipProbe.Read(gameObject).Status != NetworkOwnershipProbe.Status.None)
+            {
+                ApplyOwnership(false);
+            }
+        }
+
+        private void ApplyOwnership(bool local)
+        {
+            if (identityLocked) return;
+            isLocalPlayer = local;
+        }
+
+        private async Task BecomeLocalAndConnectAsync(int id)
+        {
+            waitingForLocalIdentity = true;
+
+            if (!EarshotVoiceSettings.Instance.AutoConnect)
+            {
+                await WaitForLocalIdentityAsync(id);
+                return;
+            }
+
+            string channel = await VoiceChannelResolver.ResolveAsync(channelName);
+            if (!StillCurrent(id)) return;
+
+            await EarshotVoice.ConnectAsync(channel, DisplayName);
+            if (!StillCurrent(id))
+            {
+                await EarshotVoice.DisconnectAsync();
+                return;
+            }
+
+            if (EarshotVoice.IsConnected) startedSession = true;
+
+            if (string.IsNullOrEmpty(playerId))
+            {
+                playerId = EarshotVoice.LocalPlayerId;
+            }
+
+            waitingForLocalIdentity = false;
+            VoiceRoster.Register(this);
+            if (HasIdentity) VoiceRoster.NotifyIdentityReady(this);
+
+            EarshotVoiceLog.Info(
+                "Proximity Voice bereit. Kanal='" + channel +
+                "'  lokal='" + playerId + "'");
+        }
+
+        private async Task WaitForLocalIdentityAsync(int id)
         {
             const int pollMs = 100;
             const int timeoutMs = 15000;
             int waited = 0;
 
-            while (waitingForLocalIdentity && waited < timeoutMs)
+            while (StillCurrent(id) && waitingForLocalIdentity && waited < timeoutMs)
             {
-                string id = EarshotVoice.LocalPlayerId;
-                if (!string.IsNullOrEmpty(id))
+                string localId = EarshotVoice.LocalPlayerId;
+                if (!string.IsNullOrEmpty(localId))
                 {
-                    playerId = id;
+                    playerId = localId;
                     waitingForLocalIdentity = false;
                     VoiceRoster.NotifyIdentityReady(this);
                     return;
@@ -130,6 +224,50 @@ namespace Earshot.Voice
                 await Task.Delay(pollMs);
                 waited += pollMs;
             }
+        }
+
+        private async Task WaitForRemoteIdentityAsync(int id)
+        {
+            const int pollMs = 100;
+            const int timeoutMs = 15000;
+            int waited = 0;
+
+            while (StillCurrent(id) && waited < timeoutMs)
+            {
+                if (TryApplyRemoteIdentity()) return;
+
+                await Task.Delay(pollMs);
+                waited += pollMs;
+            }
+        }
+
+        private bool TryApplyRemoteIdentity()
+        {
+            if (HasIdentity)
+            {
+                VoiceRoster.NotifyIdentityReady(this);
+                return true;
+            }
+
+            if (!NetworkOwnershipProbe.TryReadSyncedPlayerId(gameObject, out string synced))
+            {
+                return false;
+            }
+
+            if (string.Equals(synced, EarshotVoice.LocalPlayerId, System.StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            playerId = synced;
+            VoiceRoster.Register(this);
+            VoiceRoster.NotifyIdentityReady(this);
+            return true;
+        }
+
+        private bool StillCurrent(int id)
+        {
+            return this && runId == id;
         }
 
         private void EnsureVoiceAnchor()

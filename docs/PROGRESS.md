@@ -2,13 +2,11 @@
 
 ## Aktuell
 
-**Phase 1 — Multiplayer abkoppeln (Kernumbau)**
+**Phase 3 — Raum-Portal-Graph**
 
-Status: Dieses Repo ist jetzt ein Voice-only-DevProject. `com.earshot.voice` liegt unter `DevProject/Packages/com.earshot.voice/`. Das alte Multiplayer-Paket `com.earshot.coop` und die Netcode-/MPPM-Abhängigkeiten sind aus dem Repo entfernt. NGO-Adapter entfällt — das eigene Spielprojekt räumt der Nutzer selbst auf (Anleitung: `docs/altes-earshot-entfernen.md`), danach kommt nur noch das neue Paket hinein.
+Status: `EarshotProximityVoice` verbindet und erkennt lokal/remote selbst. Im Spiel: Paket updaten (push + Package Manager), dann zu zweit in die Lobby — ohne `ConnectAsync`/`Bind`.
 
-Offen hier: Hörtest in Unity (`VoiceTestSpeaker` + Distanz/Wand/Tür), danach Löschen von `ProximityChatExport/`. Phase 2 bleibt beim Nutzer im eigenen Spiel.
-
-Nächster Schritt: diesen Stand **pushen**, dann im Spiel per Git-URL einbinden (`docs/altes-earshot-entfernen.md` Abschnitt 8). Danach `EarshotProximityVoice` + `ConnectAsync` + `Bind`, dann Hörtest.
+Nächster Schritt hier: Phase 3 Graph (Treppen, Richtung, Autorentools).
 
 ---
 
@@ -16,10 +14,10 @@ Nächster Schritt: diesen Stand **pushen**, dann im Spiel per Git-URL einbinden 
 
 > Wer Earshot nutzen will, zieht **eine Komponente** (`EarshotProximityVoice`) auf seinen Player. Nicht mehr, nicht weniger.
 
-- [ ] Phase 1: `EarshotProximityVoice` ist die einzige Pflichtkomponente, alles andere (Backend, Registrierung, Adapter-Erkennung) läuft automatisch dahinter
-- [ ] Phase 2: Im eigenen Spielprojekt ist `com.earshot.coop` restlos weg (Anleitung `docs/altes-earshot-entfernen.md`); auf dem Player steht danach nur `EarshotProximityVoice` — keine `CoopPlayer`
+- [x] Phase 1: `EarshotProximityVoice` ist die einzige Pflichtkomponente, alles andere (Backend, Registrierung) läuft automatisch dahinter
+- [x] Phase 2: Im eigenen Spielprojekt ist `com.earshot.coop` restlos weg; auf dem Player steht `EarshotProximityVoice` — keine `CoopPlayer`
 - [ ] Phase 3: Zonen (`VoiceZone`) und Portale (`VoicePortal`) bleiben **optionale** Komponenten auf Wänden/Türen — der Graph funktioniert mit Fallback (`OcclusionModifier`) auch ganz ohne sie, ein Nutzer *kann* sie für bessere Akustik hinzufügen, muss aber nicht
-- [ ] Kein Schritt in irgendeiner Phase darf verlangen, dass der Nutzer Netzwerk-Code, Player-IDs oder Audio-Filter manuell verdrahtet
+- [x] Kein Schritt in irgendeiner Phase darf verlangen, dass der Nutzer Netzwerk-Code, Player-IDs oder Audio-Filter manuell verdrahtet
 
 Wenn ein Arbeitspaket dazu führt, dass der Nutzer mehr als eine Komponente anfassen oder ein Feld manuell setzen muss, gehört das in den Advanced-Modus (optional, versteckt) — nicht in den Standardweg.
 
@@ -63,10 +61,9 @@ Ziel: im **Spielprojekt** kein `com.earshot.coop` mehr, keine doppelte Voice-Pip
 In diesem Repo ist das Multiplayer-Paket bereits weg. Die Checkliste unten gilt für das eigene Unity-Spiel:
 
 - [x] Inventur / altes Paket im Spielprojekt entfernt (Nutzer, 2026-09-06)
-- [ ] Diesen Repo-Stand pushen, dann im Spiel Git-URL einbinden (Weg A, siehe `docs/DECISIONS.md`)
-- [ ] Player-Prefab: `EarshotProximityVoice`
-- [ ] `EarshotVoice.ConnectAsync` am Match-Start, `Bind` auf lokal/remote
-- [ ] Settings-Asset unter `Assets/Resources/EarshotVoiceSettings.asset`
+- [x] Paket per Git-URL im Spiel eingebunden, Meta-Fix nachgezogen (Nutzer)
+- [x] Player-Prefab: `EarshotProximityVoice`
+- [x] Verbindung und lokal/remote laufen über `EarshotProximityVoice` (kein `ConnectAsync`/`Bind` im Spielcode)
 
 ---
 
@@ -74,17 +71,17 @@ In diesem Repo ist das Multiplayer-Paket bereits weg. Die Checkliste unten gilt 
 
 Läuft jetzt vollständig innerhalb von `com.earshot.voice`, komplett multiplayer-unabhängig. Entspricht v1.1 aus der bisherigen `ROADMAP.md`.
 
-- [ ] Datenmodell: Zonen (`VoiceZone`) als Knoten, Portale (`VoicePortal`: Tür, Durchgang, Treppenlauf, Galerie, Schacht) als Kanten
-- [ ] Kantengewicht = akustische Länge + Dämpfung aus `Openness`
-- [ ] Pfadsuche: Dijkstra/A* pro Sprecher/Hörer-Paar
-- [ ] Direkte Sichtlinie bleibt Schnellpfad, wenn frei; sonst gewinnt der Graph
-- [ ] Neuer `GraphModifier` in die bestehende Modifier-Kette einhängen
-  - [ ] `OcclusionModifier` bleibt als Fallback für draußen / ungebakte Level erhalten
-- [ ] Tür-Logik:
-  - [ ] Offen (`Openness >= Schwellwert`): Kante fast kostenlos
-  - [ ] Geschlossen: Kante teuer (ClosedVolume + Muffle), nicht automatisch stumm
-  - [ ] Mehrere Türen hintereinander: Dämpfung addiert sich
-  - [ ] Tür öffnet sich während des Sprechens: weicher Übergang, kein Knacken
+- [x] Datenmodell: Zonen (`VoiceZone`) als Knoten, Portale (`VoicePortal`) als Kanten (`VoiceGraph`)
+- [x] Kantengewicht = akustische Länge + Dämpfung aus `Openness`
+- [x] Pfadsuche: Dijkstra (`VoiceGraphSearch`)
+- [x] Direkte Sichtlinie bleibt Schnellpfad, wenn frei; sonst gewinnt der Graph
+- [x] Neuer `GraphModifier` in die bestehende Modifier-Kette einhängen
+  - [x] `OcclusionModifier` bleibt als Fallback, wenn kein Graph-Weg existiert
+- [x] Tür-Logik (Kern):
+  - [x] Offen (`Openness >= 0.5`): Kante fast kostenlos
+  - [x] Geschlossen: Kante teuer (+12 m) plus Dumpf im `GraphModifier`, nicht automatisch stumm
+  - [x] Mehrere Türen hintereinander: `GraphClosedness` addiert sich
+  - [x] Tür öffnet sich während des Sprechens: weicher Übergang über die bestehende Profil-Glaettung
 - [ ] Treppenhaus/Etagen:
   - [ ] Treppenlauf als Portal zwischen zwei Zonen
   - [ ] Vertikale vertikale Luftlinie durch Decke zählt nur als Occlusion, wenn kein Treppen-Portal verbindet

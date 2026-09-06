@@ -32,6 +32,8 @@ namespace Earshot.Voice.Modifiers
 
         public override void Apply(in VoiceContext context, ref VoiceSample sample)
         {
+            if (context.UsedGraph) return;
+
             float amount = Mathf.Clamp01(context.OcclusionAmount);
             if (amount <= 0f) return;
 

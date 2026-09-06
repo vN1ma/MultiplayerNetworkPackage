@@ -3,14 +3,8 @@ using UnityEngine;
 namespace Earshot.Voice
 {
     /// <summary>
-    /// Die einzige Bruecke, die dieses Paket zu einem Multiplayer-Framework braucht.
-    /// <para>
-    /// Wer ein eigenes Netzwerk-Framework anbindet (Netcode, Mirror, Photon, ...), schreibt
-    /// einen kleinen Adapter, der dieses Interface auf dem Player-Prefab implementiert (oder
-    /// <see cref="EarshotProximityVoice.Bind"/> aufruft, sobald die Identitaet feststeht).
-    /// Alles unterhalb dieser Grenze - Registrierung, Zuordnung, Klang - kennt kein Netcode
-    /// und keine bestimmte Multiplayer-Loesung.
-    /// </para>
+    /// Die Bruecke zwischen Avatar und Sprachschicht. <see cref="EarshotProximityVoice"/>
+    /// implementiert das. Ein eigener Adapter ist nicht noetig.
     /// </summary>
     public interface IProximityVoicePlayer
     {

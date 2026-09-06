@@ -44,6 +44,16 @@ namespace Earshot.Voice
         public float CrossZoneVolume => crossZoneVolume;
         public float CrossZoneMuffle => crossZoneMuffle;
 
+        private void OnEnable()
+        {
+            VoiceGraph.MarkDirty();
+        }
+
+        private void OnDisable()
+        {
+            VoiceGraph.MarkDirty();
+        }
+
         private void Reset()
         {
             var col = GetComponent<Collider>();

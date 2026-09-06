@@ -220,7 +220,9 @@ namespace Earshot.Voice
             // entstehen. So sah es Vivox' "Audio Tap" von Anfang an vor.
             if (!debugLoop && tap != null && Anchor != null)
             {
-                tap.transform.position = Anchor.position;
+                tap.transform.position = LastContext.UsedGraph
+                    ? LastContext.ApparentPosition
+                    : Anchor.position;
             }
 
             KeepVivoxStreamAlive();

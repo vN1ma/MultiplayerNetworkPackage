@@ -41,19 +41,8 @@ Add package from disk nur zum Alleine-Test, bevor der Stand auf GitHub liegt.
 
 ### Pflicht
 
-1. `EarshotProximityVoice` auf jeden spielbaren Charakter (lokal und remote).
-2. `EarshotVoice.ConnectAsync(kanalname, anzeigename)` aufrufen, sobald alle im
-   selben Match sind. `kanalname` muss bei allen identisch sein.
-
-```csharp
-using Earshot.Voice;
-
-await EarshotVoice.ConnectAsync("match-42", "Anna");
-EarshotVoice.ToggleMicrophone();
-```
-
-Optional: `Create > Earshot Voice > Settings` als
-`Assets/Resources/EarshotVoiceSettings.asset`, plus ein Voice Profile.
+`EarshotProximityVoice` auf jeden spielbaren Charakter (lokal und remote).
+Sonst nichts. Die Komponente verbindet selbst und erkennt, welcher Avatar der eigene ist.
 
 Vivox und Unity Authentication muessen im Cloud-Projekt des Spiels aktiv sein
 (`Edit > Project Settings > Services`).

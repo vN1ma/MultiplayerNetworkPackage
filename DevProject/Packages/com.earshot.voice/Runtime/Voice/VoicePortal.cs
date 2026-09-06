@@ -35,7 +35,23 @@ namespace Earshot.Voice
         public float Openness
         {
             get => openness;
-            set => openness = Mathf.Clamp01(value);
+            set
+            {
+                float clamped = Mathf.Clamp01(value);
+                if (Mathf.Abs(clamped - openness) < 0.001f) return;
+                openness = clamped;
+                VoiceGraph.MarkDirty();
+            }
+        }
+
+        private void OnEnable()
+        {
+            VoiceGraph.MarkDirty();
+        }
+
+        private void OnDisable()
+        {
+            VoiceGraph.MarkDirty();
         }
 
         public float ClosedMuffle => closedMuffle;

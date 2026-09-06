@@ -26,6 +26,15 @@ namespace Earshot.Voice
         [Tooltip("Mikrofon beim Beitreten stummgeschaltet lassen, bis der Spieler es selbst aktiviert.")]
         private bool microphoneMutedOnJoin = false;
 
+        [Header("Verbindung")]
+        [SerializeField]
+        [Tooltip("Der lokale EarshotProximityVoice tritt dem Sprachkanal von selbst bei.")]
+        private bool autoConnect = true;
+
+        [SerializeField]
+        [Tooltip("Fallback-Kanal, wenn keine Unity-Lobby gefunden wird und das Inspector-Feld leer ist.")]
+        private string channelName = VoiceChannelResolver.DefaultChannel;
+
         [Header("Entwicklung")]
         [SerializeField]
         [Tooltip("Ausfuehrliche Meldungen zum Verbindungsablauf in der Konsole.")]
@@ -33,6 +42,8 @@ namespace Earshot.Voice
 
         public bool VoiceEnabled => voiceEnabled;
         public bool MicrophoneMutedOnJoin => microphoneMutedOnJoin;
+        public bool AutoConnect => autoConnect;
+        public string ChannelName => channelName;
         public bool VerboseLogging => verboseLogging;
 
         public VoiceProfile VoiceProfile
@@ -107,6 +118,7 @@ namespace Earshot.Voice
             voiceProfile.AddRuntimeModifier(CreateInstance<DistanceFalloffModifier>());
             voiceProfile.AddRuntimeModifier(CreateInstance<OcclusionModifier>());
             voiceProfile.AddRuntimeModifier(CreateInstance<PortalModifier>());
+            voiceProfile.AddRuntimeModifier(CreateInstance<GraphModifier>());
             voiceProfile.AddRuntimeModifier(CreateInstance<ZoneModifier>());
             defaultsInjected = true;
         }

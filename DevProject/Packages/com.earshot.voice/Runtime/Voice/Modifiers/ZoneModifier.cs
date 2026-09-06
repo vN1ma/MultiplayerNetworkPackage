@@ -40,7 +40,7 @@ namespace Earshot.Voice.Modifiers
                 sample.Volume *= Mathf.Lerp(1f, 1f - speakerZone.Absorption, intensity);
             }
 
-            if (context.SameZone) return;
+            if (context.SameZone || context.UsedGraph) return;
 
             // Ueber eine Raumgrenze hinweg zaehlt der Raum des Sprechers; hat er keinen,
             // greift ersatzweise der des Zuhoerers. So wirkt die Grenze auch dann, wenn

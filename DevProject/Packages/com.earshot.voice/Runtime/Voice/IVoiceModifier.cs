@@ -44,6 +44,9 @@ namespace Earshot.Voice
         /// <summary>Tueren und Fenster lockern die Occlusion wieder auf.</summary>
         public const int Portal = 300;
 
+        /// <summary>Weg durch Raeume und Tueren, wenn die Sichtlinie blockiert ist.</summary>
+        public const int Graph = 350;
+
         /// <summary>Raumeigenschaften wie Hall und Grunddaempfung.</summary>
         public const int Zone = 400;
 

@@ -10,6 +10,11 @@ Auswirkung: welches Arbeitspaket/welche Datei betroffen ist
 ```
 
 
+## [2026-09-06] Alles laeuft ueber EarshotProximityVoice
+Kontext: Nutzer will keinen Spielcode fuer Connect/Bind. Leitprinzip: eine Komponente.
+Entscheidung/Fakt: Die Komponente verbindet selbst, liest Besitz per Reflection (kein Netcode in der asmdef) und ordnet Stimmen zu. Zwei Spieler ohne synchronisierte UGS-ID nutzen den bestehenden 1:1-Fallback in `VoiceRuntime`.
+Auswirkung: Kein Pflicht-Aufruf mehr in Lobby-/Spawn-Code. Paket im Spiel nach Push updaten.
+
 ## [2026-09-06] Spiel-Team holt com.earshot.voice per Git-URL (Weg A)
 Kontext: Mehrere Leute arbeiten am Spiel über Git. Add-package-from-disk zeigt auf einen lokalen Pfad — Mitspieler hätten das Paket nicht, Änderungen im Package-Cache wären verloren.
 Entscheidung/Fakt: Dieses Repo bleibt die Quelle. Das Spiel trägt in `Packages/manifest.json` die Git-URL mit `?path=/DevProject/Packages/com.earshot.voice` ein. Mitspieler brauchen nur das Spiel-Repo. Nach jeder Paket-Änderung hier: commit + push, im Spiel Package Manager Update, neuen `packages-lock.json`-Hash mitcommitten.
