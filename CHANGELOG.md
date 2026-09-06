@@ -10,6 +10,11 @@ Neueste Einträge oben. Format (siehe `.clinerules/01-workflow.md`):
 ```
 
 
+## [2026-09-06] – Phase 1 im Plan auf Export-Stand als Basis umgestellt
+- Phase 1 in `docs/earshot-voice-plan.md` und `docs/PROGRESS.md` umgeschrieben: Basis ist die neueste Voice-Iteration aus `ProximityChatExport/` (Namespace `Earshot.Proximity` → `Earshot.Voice`, `ProxVoice` → eigenständige Fassade, `ProxVoiceRoster` + `PlayerRegistry` → generisches `IProximityVoicePlayer`-Register) statt des älteren `Voice/`-Ordners in `com.earshot.coop`. WP-Reihenfolge unverändert, nur Basis und Übernahme-Schritte angepasst.
+- Warum: Nutzer hat klargestellt, dass der Export-Ordner die zuletzt bearbeitete Version enthält.
+- Betroffene Dateien: `docs/earshot-voice-plan.md`, `docs/PROGRESS.md`
+
 ## [2026-09-06] – Neuesten Stand des Proximity-Chat-Exports gesichert
 - `ProximityChatExport/` enthält die zuletzt bearbeitete, netzwerk-unabhängige Voice-Iteration (`ProxVoice`-Fassade mit `ConnectAsync`/Anonymous-SignIn, `ProxVoiceRoster`/`ProxVoicePlayer`, überarbeitete `VoiceRuntime`/`VoiceSessionLog`/`VivoxVoiceBackend`). Der Ordner war zuvor fälschlich als veralteter Entwurf eingestuft und gitignored — jetzt stattdessen committet. DevProject hält die ältere Voice-Version plus Test-Werkzeuge (`VoiceTestSpeaker`, `VoiceSessionRecorder`, `MppmDuoTester`).
 - Absolute lokale Pfade in `ANLEITUNG.md` durch Platzhalter ersetzt (Regel 04).
