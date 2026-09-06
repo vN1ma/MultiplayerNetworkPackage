@@ -261,7 +261,7 @@ namespace Earshot.Voice
 
         private VoiceZone Zone(string name, Vector3 center, Vector3 size)
         {
-            var go = Box(name, center, size, new Color(0.2f, 0.5f, 0.8f, 0.05f), geometry, trigger: true);
+            var go = Box(name, center, size, wallMat, geometry, trigger: true);
             go.GetComponent<MeshRenderer>().enabled = false;
             var zone = go.AddComponent<VoiceZone>();
             return zone;
