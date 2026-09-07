@@ -19,6 +19,18 @@ namespace Earshot.Voice
         private const int MaxDelaySeconds = 2;
         private const float VolumeSmoothPerSecond = 6f;
 
+        // Nie naeher als das rechnen — sonst kann ein Geraet direkt am Ohr (z.B. Hand-Modell
+        // sehr nah am Kopf) auf maximale Lautstaerke kommen und mit dem Mikro echte akustische
+        // Rueckkopplung ("Heulen") ausloesen, die von Aufnahme zu Aufnahme lauter wird.
+        private const float MinPerceivedDistance = 0.9f;
+
+        // Schutz gegen Duplikate/Desync (z.B. ein lokales Sicht-/Handmodell-Walkie, dessen
+        // eigenes IsTransmitting-Flag nie gesetzt wird): ein Geraet direkt an der eigenen
+        // Hoerposition darf niemals die eigene Stimme (Sidetone) abspielen, egal was sein
+        // eigener Sende-Status sagt — der ganze Sinn von Sidetone ist, sich AN EINEM ANDEREN
+        // Geraet zu hoeren, nicht am eigenen.
+        private const float MinSidetoneSelfDistance = 0.5f;
+
         private EarshotWalkieTalkie walkie;
         private AudioSource source;
         private AudioLowPassFilter lowPass;
@@ -40,6 +52,11 @@ namespace Earshot.Voice
 
         private float[] monoPullBuffer = new float[2048];
         private float smoothedVolume;
+        private float radioCrunch;
+
+        // Sample-and-Hold-Zustand fuer den Alter-Funk-Effekt (nur Audio-Thread).
+        private int crunchHoldCounter;
+        private float crunchHeldValue;
 
         internal void Bind(EarshotWalkieTalkie owner)
         {
@@ -208,6 +225,7 @@ namespace Earshot.Voice
 
             source.maxDistance = walkie.MaxHearingDistance;
             delaySeconds = walkie.TransmissionDelaySeconds;
+            radioCrunch = walkie.RadioCrunch;
 
             bool active = ShouldOutput();
             float targetVolume = 0f;
@@ -241,7 +259,20 @@ namespace Earshot.Voice
             if (walkie == null || !walkie.PoweredOn) return false;
             if (walkie.IsTransmitting) return false;
 
-            if (IsSidetoneMode()) return true;
+            if (IsSidetoneMode())
+            {
+                // Steht dieses Geraet praktisch an der eigenen Hoerposition (z.B. ein
+                // Sicht-/Handmodell-Duplikat ohne synchronisierten Sendezustand), niemals
+                // die eigene Stimme dort ausgeben — das waere kein Sidetone, sondern ein
+                // Feedback-Kandidat direkt am eigenen Ohr.
+                if (TryListenerPosition(out Vector3 selfListener) &&
+                    Vector3.Distance(selfListener, transform.position) < MinSidetoneSelfDistance)
+                {
+                    return false;
+                }
+
+                return true;
+            }
 
             if (WalkieTalkieRegistry.LocalIsTransmitting) return false;
 
@@ -251,9 +282,12 @@ namespace Earshot.Voice
 
         private float DistanceFalloff()
         {
-            if (!TryListenerPosition(out Vector3 listener)) return 1f;
+            // Kein bekannter Zuhoerer-Ort: lieber still als versehentlich auf voller
+            // Lautstaerke senden (frueher wurde hier faelschlich 1f/volle Lautstaerke
+            // zurueckgegeben).
+            if (!TryListenerPosition(out Vector3 listener)) return 0f;
             float max = Mathf.Max(1f, walkie.MaxHearingDistance);
-            float d = Vector3.Distance(listener, transform.position);
+            float d = Mathf.Max(Vector3.Distance(listener, transform.position), MinPerceivedDistance);
             float t = 1f - Mathf.Clamp01(d / max);
             return t * t;
         }
@@ -338,6 +372,8 @@ namespace Earshot.Voice
                         delayPrimed = true;
                     }
 
+                    outgoing = ApplyRadioCrunch(outgoing, radioCrunch);
+
                     int baseIdx = f * ch;
                     for (int c = 0; c < ch; c++) data[baseIdx + c] = outgoing;
                 }
@@ -346,6 +382,33 @@ namespace Earshot.Voice
             {
                 Silence(data);
             }
+        }
+
+        /// <summary>
+        /// Bewusster "altes Funkgeraet"-Charakter: grobe Stufen (Sample-and-Hold), reduzierte
+        /// Aufloesung (Bit-Crush) und leichte weiche Verzerrung. Deutlich hoerbar von der
+        /// glatten Mund-Stimme unterscheidbar, aber deterministisch (kein Knacken/Glitch).
+        /// </summary>
+        private float ApplyRadioCrunch(float sample, float amount)
+        {
+            if (amount <= 0.001f) return sample;
+
+            int hold = 1 + Mathf.RoundToInt(amount * 2f);
+            if (crunchHoldCounter <= 0)
+            {
+                crunchHeldValue = sample;
+                crunchHoldCounter = hold;
+            }
+
+            crunchHoldCounter--;
+
+            float levels = Mathf.Lerp(48f, 10f, amount);
+            float quantized = Mathf.Round(crunchHeldValue * levels) / levels;
+
+            float drive = 1f + amount * 1.2f;
+            float distorted = Mathf.Clamp(quantized * drive, -1f, 1f);
+
+            return Mathf.Lerp(sample, distorted, amount);
         }
 
         private static void Silence(float[] data)

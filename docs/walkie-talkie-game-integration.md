@@ -96,6 +96,28 @@ Das Package kennt **kein** Netcode. Sync im Spiel z.B.:
 
 PTT und CanTransmit können lokal bleiben: Vivox trägt die Stimme nur, wenn **dieser** Client `SetTransmitting(true)` setzt. Remotes hören über den Funkkanal, sobald sie ein eingeschaltetes Gerät auf derselben `ChannelId` haben.
 
+#### ⚠️ SetTransmitting/SetCanTransmit NIE per Netzwerk-Callback auf allen Clients aufrufen
+
+Das ist die häufigste Fehlerquelle bei zwei+ Spielern. Wenn du z.B. `IsTransmitting` als `NetworkVariable<bool>` synchronisierst und in `OnValueChanged` auf **jedem** Client (Besitzer **und** Remote) `walkie.SetTransmitting(newValue)` aufrufst, denkt der **fremde** Client fälschlich, ER würde gerade senden:
+
+- sein eigenes Mikrofon startet (`Microphone.Start` kann beim ersten Aufruf spürbar rucken/freezen)
+- er hört ein Phantom-Sidetone von sich selbst
+- `LocalIsTransmitting` ist bei ihm fälschlich `true`, blockiert lokal den Fremdempfang (Half-Duplex greift grundlos)
+
+**Richtig:** `SetTransmitting`/`SetCanTransmit` nur auf der Instanz aufrufen, die dem **lokalen** Client gehört (z.B. `if (networkObject.IsOwner) walkie.SetTransmitting(pressed);`). Auf allen Clients einmal beim Spawn zusätzlich aufrufen:
+
+```csharp
+walkie.SetLocalOwnership(networkObject.IsOwner);
+```
+
+Das Package ignoriert `SetTransmitting(true)` mit einer Log-Warnung, wenn `SetLocalOwnership(false)` gesetzt wurde (Default ist `true`, also unverändertes Verhalten ohne diesen Aufruf — nur für Einzelspieler-Tests sicher). Willst du bei Remote-Spielern trotzdem eine visuelle "sendet gerade"-Anzeige (LED etc.), löse das über eine eigene, rein optische NetworkVariable — nicht über `SetTransmitting`.
+
+#### ⚠️ Kein zweites, unsynchronisiertes Walkie-Objekt pro Spieler (z.B. Ego-Sichtmodell)
+
+Falls ihr fürs Ego-Modell (First-Person-Ansicht der Hand) ein **separates** GameObject/Prefab mit eigener `EarshotWalkieTalkie` verwendet (getrennt vom „echten", vernetzten Welt-Objekt), muss dessen Zustand exakt gespiegelt werden (`SetPowered`, `SetCanTransmit`, `SetTransmitting` — alle drei), sonst denkt das Package, es gäbe ein zweites Gerät auf dem Kanal, das nie sendet und daher ganz normal Sidetone abspielen darf — und das sitzt dann direkt an deinem Kopf.
+
+Das Package hat dafür eine Sicherung (`MinSidetoneSelfDistance`, 0,5 m): Sidetone wird an einem Gerät, das quasi an deiner eigenen Hörposition klebt, nie abgespielt, egal was sein eigenes `IsTransmitting` sagt. Zusätzlich loggt jedes `SetTransmitting(true)` alle anderen Geräte auf demselben Kanal mit Entfernung ins Session-Log (`WALKIE DEBUG: ...`) — damit siehst du sofort, ob es ein zweites Objekt gibt.
+
 ### 4. Viele Geräte
 
 Einfach mehrere Prefab-Instanzen. Gleiche `channelId` → gleiches Funknetz. Verschiedene IDs → getrennte Netze.
@@ -140,6 +162,7 @@ Proximity-Chat bleibt unverändert: `EarshotProximityVoice` auf dem Player. Walk
 - **Can Transmit** — oft zur Laufzeit vom Spiel gesetzt
 - **Radio Volume / HighPass / LowPass** — Blech-Sound
 - **Transmission Delay Seconds** — Walkie-Delay
+- **Radio Crunch** — Alter-Funk-Charakter (Bit-/Sample-Reduktion + Verzerrung), 0 = aus
 - **Mouth Volume While Transmitting** — Restlautstärke Nähe-Mund beim Funken
 - **Max Hearing Distance** — Leak-Reichweite um das Gerät
 - **Audio Anchor** — optionaler Transform für die Hörposition
@@ -174,6 +197,7 @@ Tests: `Tests/EditMode/WalkieRulesTests.cs`
 - [ ] Prefab mit `EarshotWalkieTalkie`
 - [ ] E aufheben / G ablegen / Q Power / LMB PTT verdrahten
 - [ ] `SetCanTransmit` nur in der Hand
+- [ ] `SetLocalOwnership(networkObject.IsOwner)` einmal beim Spawn — **PTT/CanTransmit nie auf fremden Clients aufrufen**
 - [ ] Besitz/Position über euer Netz syncen
 - [ ] Package per Git-URL updaten und Hörtest zu zweit (ein Gerät am Boden, eines in der Hand)
 

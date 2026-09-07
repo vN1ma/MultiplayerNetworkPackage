@@ -8,6 +8,22 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Hinzugefuegt
 
+- `EarshotWalkieTalkie.SetLocalOwnership(bool)` + `IsLocallyOwned`: schuetzt `SetTransmitting`
+  davor, auf fremden (Remote-)Client-Instanzen faelschlich Mikro/Sidetone auszuloesen —
+  Standard bleibt `true` (unveraendertes Verhalten ohne Netzwerk)
+- `Radio Crunch`-Regler an `EarshotWalkieTalkie`: bewusster Alter-Funk-Charakter
+  (Sample-and-Hold + Bit-Reduktion + leichte Verzerrung), damit Walkie-Stimme sich
+  hoerbar von Mund-Stimme unterscheidet
+- Mikrofon-Vorwaermen (`WalkieSidetoneCapture.Prewarm`) beim Verbindungsaufbau, um den
+  bekannten `Microphone.Start`-Ruckler nicht erst beim ersten echten PTT-Druck zu zahlen
+- Nahfeld-Lautstaerke-Deckel (`MinPerceivedDistance`) in `WalkieDeviceOutput` gegen
+  akustische Rueckkopplung, wenn ein Geraet sehr nah am Ohr sitzt
+- Sidetone-Selbstschutz (`MinSidetoneSelfDistance`): ein Geraet direkt an der eigenen
+  Hoerposition (z.B. unsynchronisiertes Sicht-/Handmodell-Duplikat) spielt nie die eigene
+  Stimme ab, unabhaengig von seinem eigenen `IsTransmitting`-Flag
+- Debug-Log beim Sendestart: listet alle anderen eingeschalteten Geraete auf demselben
+  Kanal samt Entfernung, warnt bei < 0,5 m (Duplikat-/Sichtmodell-Verdacht)
+
 - Phase 4 Walkie-Talkie: `EarshotWalkieTalkie`, Vivox-Funkkanal (`earshot.radio.*`),
   Half-Duplex, lokales Empfangs-Delay, Leak am Geraet, Mund-Daempfung beim Funken
 - Walkie Sidetone (eigene Stimme versetzt an anderen Geraeten), Fan-out an alle
@@ -53,3 +69,5 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   von Kanalzahl weiterzureichen
 - Sidetone-Gate ist jetzt ein weich nachziehender Gain mit Sustain-Schwelle (~90 ms), damit
   kurze Transienten wie Schritt-Klicks seltener durchrutschen, statt hart an/aus zu schalten
+- `WalkieDeviceOutput.DistanceFalloff()` gab bei unbekannter Zuhoerer-Position faelschlich
+  volle Lautstaerke (`1f`) zurueck statt still zu bleiben — jetzt `0f`

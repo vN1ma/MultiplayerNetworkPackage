@@ -50,6 +50,10 @@ namespace Earshot.Voice
         private float transmissionDelaySeconds = 0.18f;
 
         [SerializeField, Range(0f, 1f)]
+        [Tooltip("Alter-Funk-Charakter (Bit-/Sample-Reduktion + leichte Verzerrung), damit Walkie-Stimme sich hoerbar von Mund-Stimme unterscheidet.")]
+        private float radioCrunch = 0.35f;
+
+        [SerializeField, Range(0f, 1f)]
         [Tooltip("Mund-/Naehe-Stimme des Senders, solange er funkt (Funk ersetzt Mund).")]
         private float mouthVolumeWhileTransmitting = 0.12f;
 
@@ -63,6 +67,7 @@ namespace Earshot.Voice
 
         private bool poweredOn;
         private bool transmitting;
+        private bool isLocallyOwned = true;
         private WalkieDeviceOutput deviceOutput;
 
         public string ChannelId => WalkieRules.SanitizeChannelId(channelId);
@@ -84,6 +89,14 @@ namespace Earshot.Voice
         public float LowPassHz => lowPassHz;
 
         public float TransmissionDelaySeconds => WalkieRules.ClampDelaySeconds(transmissionDelaySeconds);
+
+        public float RadioCrunch => Mathf.Clamp01(radioCrunch);
+
+        /// <summary>
+        /// Wahr nur auf der Instanz, die dem LOKALEN Spieler-Client gehoert (z.B. NetworkObject.IsOwner
+        /// bei Netcode). Default true fuer Abwaertskompatibilitaet ohne Netzwerk. Siehe <see cref="SetLocalOwnership"/>.
+        /// </summary>
+        public bool IsLocallyOwned => isLocallyOwned;
 
         public float MouthVolumeWhileTransmitting => Mathf.Clamp01(mouthVolumeWhileTransmitting);
 
@@ -132,6 +145,15 @@ namespace Earshot.Voice
         {
             if (value)
             {
+                if (!isLocallyOwned)
+                {
+                    EarshotVoiceLog.Warn(
+                        $"WALKIE '{ChannelId}': SetTransmitting(true) auf nicht-lokal-besessener " +
+                        "Instanz ignoriert. Siehe SetLocalOwnership() — vermutlich ruft das Spiel " +
+                        "PTT auf allen Clients statt nur beim Besitzer auf.");
+                    return;
+                }
+
                 if (!WalkieRules.CanTransmit(poweredOn, canTransmit)) return;
                 if (transmitting) return;
 
@@ -149,6 +171,7 @@ namespace Earshot.Voice
                 transmitting = true;
                 WalkieTalkieRegistry.SetLocalTransmit(this, true);
                 VoiceSessionLog.Note($"WALKIE PTT an '{ChannelId}'");
+                LogChannelSiblingsForDebug(devices);
             }
             else
             {
@@ -156,6 +179,61 @@ namespace Earshot.Voice
                 transmitting = false;
                 WalkieTalkieRegistry.SetLocalTransmit(this, false);
                 VoiceSessionLog.Note($"WALKIE PTT aus '{ChannelId}'");
+            }
+        }
+
+        /// <summary>
+        /// WICHTIG bei Netzwerk-Objekten: Einmal pro Client aufrufen, sobald klar ist, ob
+        /// DIESER Client der Besitzer ist (z.B. <c>SetLocalOwnership(networkObject.IsOwner)</c>
+        /// direkt nach dem Spawn). Ohne diesen Aufruf bleibt die Instanz "owned" (Default true) —
+        /// das ist nur fuer Einzelspieler-/Netzwerk-freie Tests sicher.
+        /// <para>
+        /// Wird eine Walkie-Instanz eines FREMDEN Spielers faelschlich als "owned" behandelt
+        /// (z.B. weil ein NetworkVariable-Callback <see cref="SetTransmitting"/> auf ALLEN
+        /// Clients statt nur beim Besitzer aufruft), denkt dieser Client faelschlich, ER sende:
+        /// eigenes Mikrofon startet (Freeze durch <c>Microphone.Start</c>), Sidetone spielt
+        /// Phantom-Ton ab. Deshalb: PTT/CanTransmit nur ueber die lokal-besessene Instanz steuern.
+        /// </para>
+        /// </summary>
+        public void SetLocalOwnership(bool isLocal)
+        {
+            isLocallyOwned = isLocal;
+            if (!isLocallyOwned && transmitting)
+            {
+                SetTransmitting(false);
+            }
+        }
+
+        /// <summary>
+        /// Debug-Hilfe: listet beim Sendestart alle anderen eingeschalteten Geraete auf
+        /// demselben Kanal samt Entfernung im Session-Log. Hilft, ein unsynchronisiertes
+        /// Duplikat (z.B. Ego-Sichtmodell ohne eigenes SetTransmitting) zu entlarven, das
+        /// die eigene Stimme faelschlich ganz nah am Ohr abspielt.
+        /// </summary>
+        private void LogChannelSiblingsForDebug(
+            System.Collections.Generic.IReadOnlyList<EarshotWalkieTalkie> devices)
+        {
+            string wanted = ChannelId;
+            Vector3 myPos = AudioAnchor.position;
+
+            for (int i = 0; i < devices.Count; i++)
+            {
+                var d = devices[i];
+                if (d == null || d == this) continue;
+                if (!string.Equals(d.ChannelId, wanted, System.StringComparison.OrdinalIgnoreCase)) continue;
+                if (!d.PoweredOn) continue;
+
+                float dist = Vector3.Distance(myPos, d.AudioAnchor.position);
+                VoiceSessionLog.Note(
+                    $"WALKIE DEBUG: anderes Geraet auf '{wanted}': '{d.gameObject.name}', " +
+                    $"{dist:0.00} m entfernt, CanTransmit={d.CanTransmit}");
+
+                if (dist < 0.5f)
+                {
+                    VoiceSessionLog.Alert(
+                        $"WALKIE DEBUG: '{d.gameObject.name}' ist SEHR NAH ({dist:0.00} m) — " +
+                        "moeglicher Duplikat-/Sichtmodell-Verdacht, siehe SetLocalOwnership-Doku.");
+                }
             }
         }
 
@@ -218,6 +296,7 @@ namespace Earshot.Voice
             mouthVolumeWhileTransmitting = Mathf.Clamp01(mouthVolumeWhileTransmitting);
             radioVolume = Mathf.Clamp(radioVolume, 0.05f, 1f);
             sidetoneWorldVolume = Mathf.Clamp(sidetoneWorldVolume, 0.05f, 1f);
+            radioCrunch = Mathf.Clamp01(radioCrunch);
             maxHearingDistance = Mathf.Max(1f, maxHearingDistance);
             if (highPassHz > lowPassHz) lowPassHz = highPassHz;
         }

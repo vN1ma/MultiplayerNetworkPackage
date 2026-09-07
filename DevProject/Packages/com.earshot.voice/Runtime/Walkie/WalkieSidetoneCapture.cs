@@ -35,17 +35,46 @@ namespace Earshot.Voice
         private float aboveThresholdSeconds;
         private float gain;
 
+        private bool prewarmed;
+
         internal static WalkieSidetoneCapture EnsureOn(VoiceRuntime runtime)
         {
             if (runtime == null) return null;
             var c = runtime.GetComponent<WalkieSidetoneCapture>();
             if (c == null) c = runtime.gameObject.AddComponent<WalkieSidetoneCapture>();
+            c.Prewarm();
             return c;
         }
 
         private void Awake()
         {
             CacheSampleRate();
+        }
+
+        /// <summary>
+        /// Startet/stoppt das Mikrofon einmal ganz kurz beim Verbindungsaufbau statt beim
+        /// ersten echten PTT-Druck. <c>Microphone.Start</c> kann in Unity beim allerersten
+        /// Aufruf spuerbar rucken (Betriebssystem initialisiert das Geraet) — lieber jetzt,
+        /// waehrend eh schon Login/Verbindung laeuft, als mitten im Spiel beim Reinsprechen.
+        /// </summary>
+        private void Prewarm()
+        {
+            if (prewarmed) return;
+            prewarmed = true;
+
+            if (Microphone.devices == null || Microphone.devices.Length == 0) return;
+
+            try
+            {
+                CacheSampleRate();
+                string device = Microphone.devices[0];
+                var clip = Microphone.Start(device, false, 1, captureSampleRate);
+                if (clip != null) Microphone.End(device);
+            }
+            catch (System.Exception ex)
+            {
+                EarshotVoiceLog.Warn("Mikrofon-Vorwaermen fehlgeschlagen: " + ex.Message);
+            }
         }
 
         private void CacheSampleRate()
