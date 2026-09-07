@@ -71,3 +71,6 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   kurze Transienten wie Schritt-Klicks seltener durchrutschen, statt hart an/aus zu schalten
 - `WalkieDeviceOutput.DistanceFalloff()` gab bei unbekannter Zuhoerer-Position faelschlich
   volle Lautstaerke (`1f`) zurueck statt still zu bleiben — jetzt `0f`
+- `WalkieDeviceOutput`s Listener-Suche nahm bei mehr als einem aktiven AudioListener in
+  der Szene den erstbesten (nichtdeterministisch) — nutzt jetzt dieselbe robuste,
+  Spieler-bevorzugende Suche wie `VoiceRuntime` (`VoiceRoster.FindPreferredAudioListener`)

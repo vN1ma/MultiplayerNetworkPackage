@@ -301,7 +301,10 @@ namespace Earshot.Voice
                 return true;
             }
 
-            var listener = Object.FindFirstObjectByType<AudioListener>();
+            // Nicht den erstbesten Listener der Szene nehmen — bei mehr als einem aktiven
+            // AudioListener (Unity warnt davor, verhindert es aber nicht) waere das
+            // nichtdeterministisch und koennte z.B. eine Lobby-/Verbindungs-UI-Kamera treffen.
+            var listener = VoiceRoster.FindPreferredAudioListener();
             if (listener != null)
             {
                 position = listener.transform.position;

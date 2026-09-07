@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using UnityEngine;
 
 namespace Earshot.Voice
 {
@@ -81,6 +82,45 @@ namespace Earshot.Voice
             byPlayerId[player.PlayerId] = player;
             if (player.IsLocalPlayer) LocalPlayer = player;
             IdentityReady?.Invoke(player);
+        }
+
+        /// <summary>
+        /// Robuste Listener-Suche fuer Szenen mit MEHR ALS EINEM aktiven AudioListener
+        /// (Unity erlaubt das, warnt aber und das Verhalten ist sonst undefiniert — z.B.
+        /// eine Lobby-/Verbindungs-UI, die ihre eigene Kamera+Listener nicht abschaltet).
+        /// Bevorzugt einen Listener, der Kind des eigenen Spieler-Ankers ist; sonst den
+        /// ersten aktiven ueberhaupt. Nie null zurueckgeben, wenn irgendein Listener existiert.
+        /// </summary>
+        internal static AudioListener FindPreferredAudioListener()
+        {
+#if UNITY_6000_5_OR_NEWER
+            var found = UnityEngine.Object.FindObjectsByType<AudioListener>(FindObjectsInactive.Exclude);
+#else
+            var found = UnityEngine.Object.FindObjectsByType<AudioListener>(
+                FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+#endif
+
+            var local = LocalPlayer;
+            if (local != null && local.VoiceAnchor != null)
+            {
+                for (int i = 0; i < found.Length; i++)
+                {
+                    var candidate = found[i];
+                    if (candidate != null && candidate.isActiveAndEnabled &&
+                        candidate.transform.IsChildOf(local.VoiceAnchor))
+                    {
+                        return candidate;
+                    }
+                }
+            }
+
+            for (int i = 0; i < found.Length; i++)
+            {
+                var candidate = found[i];
+                if (candidate != null && candidate.isActiveAndEnabled) return candidate;
+            }
+
+            return null;
         }
 
         /// <summary>

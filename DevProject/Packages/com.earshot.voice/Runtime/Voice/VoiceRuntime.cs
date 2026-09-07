@@ -575,40 +575,6 @@ namespace Earshot.Voice
             return true;
         }
 
-        private static AudioListener FindListener()
-        {
-            // FindObjectsByType findet auch Listener, deren Komponente aus ist, solange
-            // das GameObject aktiv bleibt. Genau das macht die Lobbykamera: Sie schaltet
-            // nur den Listener ab. Ohne diese Filterung wuerde Earshot den Schall weiter
-            // von der Lobby aus rechnen, egal wo der Spieler steht.
-#if UNITY_6000_5_OR_NEWER
-            var found = Object.FindObjectsByType<AudioListener>(FindObjectsInactive.Exclude);
-#else
-            var found = Object.FindObjectsByType<AudioListener>(
-                FindObjectsInactive.Exclude, FindObjectsSortMode.None);
-#endif
-
-            var local = VoiceRoster.LocalPlayer;
-            if (local != null)
-            {
-                for (int i = 0; i < found.Length; i++)
-                {
-                    var candidate = found[i];
-                    if (candidate != null && candidate.isActiveAndEnabled &&
-                        candidate.transform.IsChildOf(local.VoiceAnchor))
-                    {
-                        return candidate;
-                    }
-                }
-            }
-
-            for (int i = 0; i < found.Length; i++)
-            {
-                var candidate = found[i];
-                if (candidate != null && candidate.isActiveAndEnabled) return candidate;
-            }
-
-            return null;
-        }
+        private static AudioListener FindListener() => VoiceRoster.FindPreferredAudioListener();
     }
 }
