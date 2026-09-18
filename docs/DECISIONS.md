@@ -10,6 +10,11 @@ Auswirkung: welches Arbeitspaket/welche Datei betroffen ist
 ```
 
 
+## [2026-09-18] v10-Leak-Jagd: Symptom ist aelter als jeder Tap-Code — Diagnose statt weiterer Blindfixes
+Kontext: Nutzer stellte klar, dass „Stimme überall gleich laut, kein 3D“ schon vor dem ersten Sidetone-/Capture-Tap-Code bestand (Session-Start gegen 4–6 Uhr mit vorheriger KI); Solo-Log 20260918-101704 zeigte keine PEGEL-Zeilen (kein Zweit-Client im Kanal), aber `activeOutput='Lautsprecher (VB-Audio Virtual Cable)'` (Vivox-Ausgabegerät) und `CABLE Output (VB-Audio Virtual Cable)` in der Input-Liste; VivoxAudioProcessor-Nachweis: keine versteckte zweite AudioSource, Tap-GameObject ist der einzige 2D-Mikro-Pfad.
+Entscheidung/Fakt: Kein weiterer Blindfix auf den Tap. Stattdessen Diagnose-Revision `leak-hunt-v10`: F9-Hart-Mute-Killswitch (mute=true nullt nachweislich die OnAudioFilterRead-Samples), `WALKIE AUDIO-INVENTAR` (alle spielenden AudioSources alle 2 s während PTT) und `WALKIE LEAK-VERDACHT`-Alerts für 2D-Quellen. `directOutputPeak` gilt als pre-filter-Messwert und ist kein Leak-Beweis. `EnforceDirectOutputUnmuted` respektiert den F9-Zustand.
+Auswirkung: `WalkieSidetoneCapture` (Revision `leak-hunt-v10`), `docs/walkie-talkie-debug-history.md` Abschnitt 12 mit Testprotokoll und Interpretationsmatrix. Offen: Wer am Host zeichnet `CABLE Output` (VB-Cable) ab bzw. warum Vivox dort ausgegeben wird; Mikro-Monitoring am Parsec-Client prüfen.
+
 ## [2026-09-18] Lokaler PTT-Zustand verfolgt die Senderinstanz
 Kontext: Sitzungslog zeigte direkt nach `WALKIE PTT aus`, dass Registry, Vivox-Sync und Hand-Walkie weiterhin `tx=True`/Sidetone meldeten.
 Entscheidung/Fakt: Die Registry darf beim Stoppen nicht erneut `device.IsTransmitting` pruefen, nachdem dieses Flag bereits geloescht wurde. Sie speichert die exakte Senderreferenz; nur diese Instanz (oder erzwungenes Cleanup) beendet den globalen Zustand.

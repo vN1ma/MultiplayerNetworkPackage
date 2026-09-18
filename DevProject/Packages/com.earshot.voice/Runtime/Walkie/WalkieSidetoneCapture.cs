@@ -10,7 +10,7 @@ namespace Earshot.Voice
     [AddComponentMenu("")]
     internal sealed class WalkieSidetoneCapture : MonoBehaviour
     {
-        private const string DiagnosticRevision = "proximity-pin-v9";
+        private const string DiagnosticRevision = "leak-hunt-v10";
 
         private VivoxCaptureSourceTap captureTap;
         private WalkieVivoxCaptureFeed feed;
@@ -21,6 +21,8 @@ namespace Earshot.Voice
         private float nextCreateAttempt;
         private float nextFlowDiagnostic;
         private bool deviceInventoryLogged;
+        private bool diagnosticHardMute;
+        private float nextInventoryLog;
         private bool lastWanted;
         private string lastChannel;
         private string lastPinnedChannel;
@@ -48,6 +50,7 @@ namespace Earshot.Voice
             EnsureCaptureTap();
             TryPinTapToActiveChannel();
             EnforceDirectOutputUnmuted();
+            HandleDiagnosticHotkeys();
 
             bool ready = captureTap != null && captureTap.TapId >= 0 && feed != null;
             bool wanted = ready &&
@@ -102,6 +105,7 @@ namespace Earshot.Voice
                     $"directOutputPeak={directOutputPeak:0.000000}, sourcePlaying={tapSource.isPlaying}, " +
                     $"sourceMute={tapSource.mute}, sourceVolume={tapSource.volume:0.000}, " +
                     $"channel='{channel}', revision='{DiagnosticRevision}'");
+                LogAudioSourceInventory();
             }
         }
 
@@ -305,11 +309,80 @@ namespace Earshot.Voice
             }
         }
 
+        /// <summary>
+        /// v10-Diagnose gegen das Symptom "eigene Stimme ueberall gleich laut, kein 3D":
+        /// F9 schaltet die Tap-AudioSource hart stumm (mute=true). Mute nullt
+        /// nachweislich die OnAudioFilterRead-Samples (Log 20260918-0735), ist also
+        /// garantiert nicht hoerbar und stoppt gleichzeitig die Sidetone-Daten.
+        /// Hoert man die eigene Stimme trotz F9 weiter, kommt sie NICHT aus dem
+        /// Sidetone-Tap — dann ist der Leak woanders (Vivox-nativ, OS, zweiter Pfad).
+        /// </summary>
+        private void HandleDiagnosticHotkeys()
+        {
+            if (Input.GetKeyDown(KeyCode.F9))
+            {
+                diagnosticHardMute = !diagnosticHardMute;
+                if (tapSource != null) tapSource.mute = diagnosticHardMute;
+                VoiceSessionLog.Alert(diagnosticHardMute
+                    ? "WALKIE DIAGNOSE F9: Tap HARD-MUTE AN. Sidetone UND direkte " +
+                      "Tap-Ausgabe sind jetzt garantiert stumm. Hoerst du deine " +
+                      "Stimme trotzdem weiter, kommt sie NICHT aus dem Sidetone-Tap."
+                    : "WALKIE DIAGNOSE F9: Tap Hard-Mute AUS - Normalzustand " +
+                      "wiederhergestellt (Sidetone wieder aktiv).");
+            }
+        }
+
+        /// <summary>
+        /// v10-Diagnose: listet alle SPIELENDEN AudioSources der Szene auf
+        /// (auch inaktive Objekte), damit jede 2D-Quelle — auch versteckte
+        /// Vivox- oder Wiedergabe-Quellen — im Log identifizierbar ist.
+        /// Laeuft gedrosselt alle 2 s waehrend des Sidetone-Flow-Logs.
+        /// </summary>
+        private void LogAudioSourceInventory()
+        {
+            if (Time.unscaledTime < nextInventoryLog) return;
+            nextInventoryLog = Time.unscaledTime + 2f;
+
+            AudioSource[] sources = FindObjectsByType<AudioSource>(
+                FindObjectsInactive.Include,
+                FindObjectsSortMode.None);
+
+            for (int i = 0; i < sources.Length; i++)
+            {
+                AudioSource candidate = sources[i];
+                if (candidate == null || !candidate.isPlaying) continue;
+
+                bool isTap = candidate == tapSource;
+                string clipName = candidate.clip != null ? candidate.clip.name : "-";
+                string objectName = candidate.gameObject.name;
+
+                VoiceSessionLog.Note(
+                    $"WALKIE AUDIO-INVENTAR: '{objectName}'" +
+                    (isTap ? " [SIDETONE-TAP]" : "") +
+                    $" clip='{clipName}' spatial={candidate.spatialBlend:0.00} " +
+                    $"vol={candidate.volume:0.00} mute={candidate.mute} " +
+                    $"loop={candidate.loop} pos={candidate.transform.position:0.0}");
+
+                if (!isTap &&
+                    candidate.spatialBlend < 0.5f &&
+                    !candidate.mute &&
+                    candidate.volume > 0.01f)
+                {
+                    VoiceSessionLog.Alert(
+                        $"WALKIE LEAK-VERDACHT: 2D-AudioSource '{objectName}' " +
+                        $"(clip='{clipName}') spielt gerade in den Mix - " +
+                        "Kandidat fuer 'Stimme ueberall gleich laut'.");
+                }
+            }
+        }
+
         private void EnforceDirectOutputUnmuted()
         {
             // v7: Die Source darf NICHT gemutet sein — AudioSource.mute nullt die
             // Samples in OnAudioFilterRead (siehe Kommentar in EnsureCaptureTap).
             // Stumme Direktausgabe garantiert der Feed selbst (Array.Clear).
+            // v10: F9-Diagnose-Mute darf nicht automatisch entfernt werden.
+            if (diagnosticHardMute) return;
             if (tapSource == null || !tapSource.mute) return;
 
             tapSource.mute = false;

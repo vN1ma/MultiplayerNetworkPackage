@@ -431,4 +431,40 @@ jedes WalkieDeviceOutput (3D, EQ, Delay, Distanz-Cutoff)
 
 ---
 
+## 12. v10 — Leak-Jagd: „Stimme überall gleich laut, kein 3D“ (2026-09-18, ~10:30)
+
+**Neue Fakten (ändern die Ursachen-Bewertung):**
+
+1. Nutzer-Klarstellung: Das Symptom bestand schon **vor** jedem Sidetone-/Capture-Tap-Code (Session-Start mit der vorherigen KI, gegen 4–6 Uhr). Die Arbeit seit damals hat zum selben Hörbild zurückgeführt — damit scheidet der VivoxCaptureSourceTap als alleinige Ursache weitgehend aus; der Verdacht verschiebt sich auf einen Pfad, der von Anfang an existierte.
+2. Solo-Log `voice-20260918-101704`: **keine PEGEL-Zeilen** → kein zweiter Teilnehmer/Client im Vivox-Kanal (Phantom-Client ausgeschlossen).
+3. `AUDIO DEVICES` desselben Logs: `activeOutput='Lautsprecher (VB-Audio Virtual Cable)'` — das ist das **Vivox-Ausgabegerät**, und `CABLE Output (VB-Audio Virtual Cable)` taucht zusätzlich als Input-Gerät auf → VB-Cable-Loopback-Konstellation am Host. Ungeklärt: wer `CABLE Output` abhört und warum Vivox-Output auf VB-Cable steht. Unitys eigene AudioSources (Tap, Walkie-Ausgänge) spielen dagegen auf dem Windows-Standard-Ausgabegerät.
+4. Code-Verifikation Vivox-Package: `VivoxAudioProcessor` nutzt `GetComponent<AudioSource>()` auf dem Tap-GameObject — es gibt **keine versteckte zweite AudioSource**. Der einzige 2D-Mikro-Pfad in Unity bleibt der Sidetone-Tap selbst.
+5. `directOutputPeak` misst vermutlich **vor** dem Filter (GetOutputData liefert die Source-Samples, nicht das gefilterte Ergebnis) — der Wert war daher nie ein Beweis für eine hörbare Direktausgabe.
+
+**v10-Diagnose-Revision `leak-hunt-v10` (`WalkieSidetoneCapture`):**
+
+- **F9-Killswitch**: Hart-Mute der Tap-AudioSource. Mute nullt nachweislich die OnAudioFilterRead-Samples (Beweis 20260918-0735) → der Tap ist danach garantiert stumm, auch die Sidetone-Daten stoppen. `EnforceDirectOutputUnmuted` respektiert den Diagnose-Zustand.
+- **`WALKIE AUDIO-INVENTAR`**: alle 2 s während PTT werden alle spielenden AudioSources der Szene geloggt (Name, Clip, spatialBlend, Volume, Mute, Position) — deckt jede versteckte 2D-Quelle auf.
+- **`WALKIE LEAK-VERDACHT`**: Alert, wenn eine Nicht-Tap-Source mit `spatialBlend < 0.5` ungemutet spielt.
+
+**Solo-Testprotokoll v10:**
+
+1. PTT + sprechen, weit weg vom Boden-Walkie → Symptom bestätigen.
+2. Während die eigene Stimme zu hören ist: **F9 drücken** und weitersprechen.
+3. Zusätzlich ohne Build prüfbar: (a) Spiel geschlossen und normal ins Mikro sprechen — hört man sich im Kopfhörer? (Mikro-Monitoring am Client/Headset/Parsec wäre dann die Ursache, kein Spiel-Bug.) (b) Am Host klären, wer `CABLE Output` (VB-Cable) aufnimmt und warum Vivox auf VB-Cable ausgibt.
+
+**Interpretation:**
+
+| Beobachtung | Bedeutung |
+|-------------|-----------|
+| F9 → Stimme verschwindet | Leak war die Tap-Direktausgabe (trotz Feed-Nullung) → Fix: Mixer-Routing statt Nullung |
+| F9 → Stimme bleibt, `LEAK-VERDACHT`-Zeile | die benannte 2D-Source ist der Leak |
+| F9 → Stimme bleibt, kein Verdacht im Inventar | Leak außerhalb Unity (Vivox-nativ / OS / VB-Cable / Mikro-Monitoring) |
+
+---
+
+*Abschnitt 11 („Nächste Schritte“) ist durch diesen Abschnitt ersetzt: nächster Schritt ist der v10-Solo-Test mit F9.*
+
+---
+
 *Dokument angelegt 2026-09-18. Bei jedem weiteren gescheiterten oder erfolgreichen Ansatz: hier einen kurzen Abschnitt ergänzen (Datum, Symptom, Hypothese, Fix, Log-Beweis, Ergebnis), nicht nur CHANGELOG-Zeilen.*
