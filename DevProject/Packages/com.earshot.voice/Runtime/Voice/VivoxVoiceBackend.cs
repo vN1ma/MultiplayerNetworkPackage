@@ -136,6 +136,36 @@ namespace Earshot.Voice
             foreach (string id in radioChannels) into.Add(id);
         }
 
+        public void CopyRadioChannelParticipantIds(string logicalChannelId, List<string> intoPlayerIds)
+        {
+            if (intoPlayerIds == null) return;
+            intoPlayerIds.Clear();
+
+            string id = WalkieRules.SanitizeChannelId(logicalChannelId);
+            if (string.IsNullOrEmpty(id)) return;
+
+            try
+            {
+                if (VivoxService.Instance == null ||
+                    !VivoxService.Instance.ActiveChannels.TryGetValue(
+                        WalkieRules.ToVivoxRadioChannel(id), out var list))
+                {
+                    return;
+                }
+
+                for (int i = 0; i < list.Count; i++)
+                {
+                    var participant = list[i];
+                    if (participant == null) continue;
+                    intoPlayerIds.Add(participant.IsSelf ? "ICH" : participant.PlayerId);
+                }
+            }
+            catch (Exception)
+            {
+                // Diagnose-Pfad darf den Sync niemals werfen.
+            }
+        }
+
         public async Task EnsureRadioChannelAsync(string logicalChannelId)
         {
             if (!IsConnected) return;

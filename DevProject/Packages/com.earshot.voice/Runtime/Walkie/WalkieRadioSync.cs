@@ -123,6 +123,35 @@ namespace Earshot.Voice
                         await backend.SetRadioTransmittingAsync(null, false);
                     }
 
+                    // leak-hunt-v13: Funkkanal-Teilnehmer offengelegen. Ein stiller
+                    // zweiter Client im Funkkanal ist im restlichen Log unsichtbar
+                    // (er redet nicht, ist nicht im Proximity-Roster), spielt die
+                    // eigene Sendung aber an SEINEN Walkies ab - aus Sicht dieses
+                    // Spielers waere das eine Stimme mit Walkie-Effekt und konstant
+                    // bleibender Lautstaerke, unabhaengig vom eigenen Standort.
+                    var participantScratch = new List<string>(8);
+                    for (int i = 0; i < wantedChannels.Count; i++)
+                    {
+                        participantScratch.Clear();
+                        backend.CopyRadioChannelParticipantIds(wantedChannels[i], participantScratch);
+
+                        if (participantScratch.Count > 1)
+                        {
+                            VoiceSessionLog.Alert(
+                                $"WALKIE RADIO KANAL '{wantedChannels[i]}': {participantScratch.Count} Teilnehmer " +
+                                $"[{string.Join(", ", participantScratch)}] - ZWEITER CLIENT IM KANAL! " +
+                                "Dessen Walkies spielen die eigene Sendung ab: Hauptverdacht fuer " +
+                                "'Stimme ueberall gleich laut' ohne 3D-Rolloff.");
+                        }
+                        else
+                        {
+                            VoiceSessionLog.Note(
+                                $"WALKIE RADIO KANAL '{wantedChannels[i]}': {participantScratch.Count} Teilnehmer " +
+                                $"[{string.Join(", ", participantScratch)}] - nur ich hier. Eine jetzt " +
+                                "hoerbare zweite Stimme mit Funk-Effekt kommt NICHT von einem anderen Client.");
+                        }
+                    }
+
                     appliedRevision = revision;
                     timer.Stop();
                     VoiceSessionLog.Note(

@@ -530,4 +530,40 @@ jedes WalkieDeviceOutput (3D, EQ, Delay, Distanz-Cutoff)
 
 ---
 
+## 15. v12 verifiziert + v13: Tap-Leak behoben — Reststimme kommt nachweislich NICHT aus dem Unity-Client (2026-09-18, ~14:30)
+
+**v12-Test-Ergebnis (Log `voice-20260918-140434-505-pid22360`):**
+
+- `revision='leak-hunt-v12'`, `tapVolume=0,00` ab Start — v12 lief wie geplant.
+- **Tap-Direktausgabe stumm:** [SIDETONE-TAP] `outPeak=0,000` über die gesamte Session. F10 (LEGACY-LEAK-MODE, `vol=1,00`) brachte die Roh-Stimme zurück (`outPeak=0,08–0,30`) → **der 2D-Leak ist per Gegenprobe endgültig behoben.**
+- **Clip-Lese-Pfad funktioniert:** `pulls≈100/s`, `pulledFrames≈48000/s`, `clipPeak` bis 0,98 beim Sprechen, `signalBlocks` 30–68, kein `ReportPullBroken`.
+- **Räumliche Sidetone korrekt:** Alle 8 `OUTPUT AN`-Zeilen mit sauberem Falloff (2,45 m → 0,482; 7,7 m → 0,001; darüber `OUT_OF_RANGE`). Um 14:06 war der Spieler 875 m weg — alle Walkies stumm (`target=0,000`).
+
+**Neues Symptom (Nutzerbericht):** Trotzdem weiterhin eine Stimme **mit** Walkie-Effekt, überall gleich laut; mit F10 zusätzlich eine **lautere Roh-Stimme ohne** Effekt — beide untereinander unterschiedlich laut, einzeln aber entfernungsunabhängig.
+
+**Analyse (vollständige Log-Auswertung + SDK-/Code-Lektüre):** Die Effekt-Stimme kann von diesem Client nicht stammen:
+
+- Der Walkie-Effekt (HP/LP/Crunch/0,2-s-Delay) existiert **ausschließlich** in `WalkieDeviceOutput` — und die waren außerhalb von 8 m um alle Walkies nachweislich stumm.
+- Keine Unity-AudioSource mit Signal: `outPeak≈0` überall (wichtig: WalkieOutput injiziert per OnAudioFilterRead in einen stillen Clip — GetOutputData misst VOR dem Filter und zeigt deshalb 0,000; verlässlich ist das `vol=`-Feld im INVENTAR, das außerhalb der Walkie-Nähe 0,00 zeigte).
+- Kein Remote-Teilnehmer im Proximity-Roster (0 × `SPIELER da`/PEGEL), kein `Microphone.Start`/CABLE-Loopback in Game oder Package, VoiceTestSpeaker inaktiv.
+- SDK-Fakten: `VivoxCaptureSourceTap` liefert nur Mikro-Daten — die **Sendung läuft nativ und ist durch volume=0 NICHT gekillt** (wichtig für den Two-Client-Test). `RegisterTapForParticipantAudio(..., silenceInFinalMix)` zeigt: Vivox spielt Empfangenes **zusätzlich nativ** an `activeOutput` — der liegt hier auf einem VB-Audio-Kabel.
+
+**Hauptverdacht (unbewiesen):** Ein stiller **zweiter Client im Funkkanal** (`earshot-radio-default`) — z. B. zweiter Editor, ein Build oder das Spiel auf einem anderen Gerät. Er redet nicht → im Log unsichtbar (kein Proximity-Roster-Eintrag, keine Reden-/PEGEL-Statistik), **spielt aber die eigene Sendung an SEINEN Walkies mit Walkie-Effekt ab** — für diesen Spieler überall gleich laut, weil die Lautstärke nur von SEINEM Standort abhängt. Hörbar via Parsec (Host-Ton). Alternativ: externes Monitoring des VB-Cables (OBS/Audacity/Windows-„Abhören dieses Geräts“).
+
+**v13-Diagnose (kein Verhaltens-Change):**
+
+1. `WalkieRadioSync` loggt bei jedem Sync die Funkkanal-Teilnehmer: `WALKIE RADIO KANAL '<id>': N Teilnehmer [ICH, ...]` — Alert bei >1 Teilnehmer (schliesst das Log-Blindfeld).
+2. Neu: `IVoiceRadioBackend.CopyRadioChannelParticipantIds` (implementiert in `VivoxVoiceBackend` über `VivoxService.Instance.ActiveChannels`, self-tolerant, try/catch-gesichert).
+3. `AUDIO DEVICES` warnt jetzt, wenn `activeOutput` ein virtuelles Kabel ist (VB-Audio/CABLE), mit Hinweis auf den Lautstärkemixer-Check.
+4. Revision `leak-hunt-v13`.
+
+**Testprotokoll v13:**
+
+1. Package-Manager-Update; Log muss `revision='leak-hunt-v13'` zeigen.
+2. Vorher auf dem Host schließen: zweite Unity-Instanzen, Builds, OBS/Audacity.
+3. **Windows-Lautstärkemixer bei gehaltener Sendetaste** beobachten: Schlägt nur „Unity Editor“ aus → Quelle ist im Client (weitergraben); schlägt eine andere App aus → externe Quelle gefunden.
+4. PTT drücken und Log-Zeile `WALKIE RADIO KANAL 'default': ...` prüfen: „2 Teilnehmer“ + Alert → der zweite Client war die Quelle der konstanten Walkie-Stimme.
+
+---
+
 *Dokument angelegt 2026-09-18. Bei jedem weiteren gescheiterten oder erfolgreichen Ansatz: hier einen kurzen Abschnitt ergänzen (Datum, Symptom, Hypothese, Fix, Log-Beweis, Ergebnis), nicht nur CHANGELOG-Zeilen.*

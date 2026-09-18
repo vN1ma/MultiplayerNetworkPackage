@@ -10,7 +10,7 @@ namespace Earshot.Voice
     [AddComponentMenu("")]
     internal sealed class WalkieSidetoneCapture : MonoBehaviour
     {
-        private const string DiagnosticRevision = "leak-hunt-v12";
+        private const string DiagnosticRevision = "leak-hunt-v13";
 
         private VivoxCaptureSourceTap captureTap;
         private WalkieVivoxCaptureFeed feed;
@@ -503,6 +503,22 @@ namespace Earshot.Voice
                 $"AUDIO DEVICES: activeInput='{EarshotVoice.ActiveInputDeviceName}', " +
                 $"activeOutput='{EarshotVoice.ActiveOutputDeviceName}', " +
                 $"inputs=[{string.Join(" | ", inputs)}], outputs=[{string.Join(" | ", outputs)}]");
+
+            // leak-hunt-v13: Vivox' native Wiedergabe geht an activeOutput. Ist das ein
+            // virtuelles Kabel (VB-Audio/CABLE), kann jedes Monitoring-Tool (OBS,
+            // Audacity, Windows-'Abhoeren dieses Geraets') den Kabel-Ton ausserhalb
+            // von Unity zurueckspielen - eine dort entstandene Stimme haette in
+            // Unitys Audio-Inventar UNSICHTBARE Peaks (GetOutputData laeuft vor Filter).
+            string activeOutput = EarshotVoice.ActiveOutputDeviceName ?? string.Empty;
+            if (activeOutput.IndexOf("VB-Audio", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                activeOutput.IndexOf("CABLE", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                VoiceSessionLog.Alert(
+                    $"AUDIO DEVICES: Vivox gibt auf '{activeOutput}' (virtuelles Kabel) aus. " +
+                    "Falls ein Tool (OBS/Audacity/Windows-'Abhoeren') dieses Kabel zurueckspielt, " +
+                    "hoerst du Vivox-Ton AUSSERHALB von Unity. Pruefe mit dem Windows-Lautstaerkemixer " +
+                    "bei gehaltener Sendetaste, welche App ausschlaegt.");
+            }
         }
 
         private static int SafeOutputSampleRate()

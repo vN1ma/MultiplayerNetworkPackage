@@ -133,6 +133,14 @@ namespace Earshot.Voice
         /// false: wieder nur Proximity senden.
         /// </summary>
         Task SetRadioTransmittingAsync(string logicalChannelId, bool transmitting);
+
+        /// <summary>
+        /// Kopiert die Vivox-Player-IDs aller Teilnehmer eines logischen Funkkanals
+        /// in die Zielliste (das eigene Konto als "ICH"). Nur fuer Diagnose-Logs:
+        /// ein stiller zweiter Client im Funkkanal redet nicht und taucht weder im
+        /// Proximity-Roster noch in Reden-/Hoeren-Statistiken auf - nur hier.
+        /// </summary>
+        void CopyRadioChannelParticipantIds(string logicalChannelId, List<string> intoPlayerIds);
     }
 
     /// <summary>
