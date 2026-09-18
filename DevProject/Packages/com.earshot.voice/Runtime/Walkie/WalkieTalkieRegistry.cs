@@ -16,6 +16,7 @@ namespace Earshot.Voice
         private static readonly List<EarshotWalkieTalkie> devices = new List<EarshotWalkieTalkie>();
         private static readonly HashSet<string> radioSpeakers =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private static EarshotWalkieTalkie localTransmitDevice;
 
         public static IReadOnlyList<EarshotWalkieTalkie> Devices => devices;
 
@@ -44,7 +45,7 @@ namespace Earshot.Voice
             if (device == null) return;
             if (!devices.Remove(device)) return;
 
-            if (LocalIsTransmitting && ReferenceEquals(device, FindTransmittingDevice()))
+            if (LocalIsTransmitting && ReferenceEquals(device, localTransmitDevice))
             {
                 ClearLocalTransmit();
             }
@@ -63,13 +64,15 @@ namespace Earshot.Voice
                     return;
                 }
 
+                localTransmitDevice = device;
                 LocalIsTransmitting = true;
                 LocalTransmitChannelId = device.ChannelId;
                 ActiveMouthDampening = device.MouthVolumeWhileTransmitting;
                 ActiveTransmissionDelaySeconds = device.TransmissionDelaySeconds;
                 ActiveSidetoneWorldVolume = device.SidetoneWorldVolume;
             }
-            else if (!transmitting && (device == null || IsSameTransmitDevice(device)))
+            else if (!transmitting &&
+                     (device == null || ReferenceEquals(device, localTransmitDevice)))
             {
                 ClearLocalTransmit();
             }
@@ -225,26 +228,9 @@ namespace Earshot.Voice
             }
         }
 
-        private static bool IsSameTransmitDevice(EarshotWalkieTalkie device)
-        {
-            return device != null &&
-                   string.Equals(device.ChannelId, LocalTransmitChannelId, StringComparison.OrdinalIgnoreCase) &&
-                   device.IsTransmitting;
-        }
-
-        private static EarshotWalkieTalkie FindTransmittingDevice()
-        {
-            for (int i = 0; i < devices.Count; i++)
-            {
-                var d = devices[i];
-                if (d != null && d.IsTransmitting) return d;
-            }
-
-            return null;
-        }
-
         private static void ClearLocalTransmit()
         {
+            localTransmitDevice = null;
             LocalIsTransmitting = false;
             LocalTransmitChannelId = null;
         }

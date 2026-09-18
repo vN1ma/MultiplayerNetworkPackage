@@ -61,6 +61,12 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Behoben
 
+- `SetTransmitting(false)` konnte den globalen PTT-Zustand nicht loeschen, weil das
+  Geraete-Flag bereits vorher auf `false` stand. Die Registry merkt sich jetzt die
+  exakte Senderinstanz; Loslassen beendet Half-Duplex und Sidetone sofort und dauerhaft.
+- Der neue `VivoxCaptureSourceTap` konnte als ungefilterte globale 2D-Quelle in den
+  finalen Mix gelangen. Seine `AudioSource` hat jetzt hart `volume = 0`; Rohsamples
+  werden weiterhin nur in den raeumlichen Walkie-Bus kopiert.
 - Proximity- und Funk-Tap desselben Spielers wurden bei Single-Channel-Sendung gegenseitig
   als haengend fehlinterpretiert und alle sechs Sekunden synchron neu aufgebaut. Recovery
   prueft und erneuert jetzt nur noch den exakten `VoiceSpeakerKey`-Pfad.

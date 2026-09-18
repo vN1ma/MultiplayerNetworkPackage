@@ -101,6 +101,29 @@ namespace Earshot.Voice.Tests
         }
 
         [Test]
+        public void Registry_OnlyTrackedDeviceCanStopLocalTransmit()
+        {
+            var senderObject = new GameObject("walkie-sender");
+            var otherObject = new GameObject("walkie-other");
+            var sender = senderObject.AddComponent<EarshotWalkieTalkie>();
+            var other = otherObject.AddComponent<EarshotWalkieTalkie>();
+            sender.SetPowered(true);
+            sender.SetCanTransmit(true);
+            other.SetPowered(true);
+            other.SetCanTransmit(true);
+
+            sender.SetTransmitting(true);
+            WalkieTalkieRegistry.SetLocalTransmit(other, false);
+            Assert.IsTrue(WalkieTalkieRegistry.LocalIsTransmitting);
+
+            sender.SetTransmitting(false);
+            Assert.IsFalse(WalkieTalkieRegistry.LocalIsTransmitting);
+
+            Object.DestroyImmediate(senderObject);
+            Object.DestroyImmediate(otherObject);
+        }
+
+        [Test]
         public void SetTransmitting_IgnoredWhenNotHeld()
         {
             var go = new GameObject("walkie-nohold");

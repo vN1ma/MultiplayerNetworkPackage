@@ -32,6 +32,7 @@ namespace Earshot.Voice
 
         private void Update()
         {
+            WalkieTalkieRegistry.EnsureLocalTransmitStillValid();
             EnsureCaptureTap();
 
             bool ready = captureTap != null && captureTap.TapId >= 0 && feed != null;
@@ -97,7 +98,10 @@ namespace Earshot.Voice
                 source.spatialBlend = 0f;
                 source.dopplerLevel = 0f;
                 source.mute = false;
-                source.volume = 1f;
+                // Der Tap wird nur als Datenquelle benutzt. Volume 0 ist die harte
+                // Sicherung gegen einen ungefilterten, globalen 2D-Monitoring-Pfad;
+                // OnAudioFilterRead erhaelt die Rohsamples weiterhin vor dem Source-Gain.
+                source.volume = 0f;
 
                 // Reihenfolge ist wichtig: Vivox speist zuerst die AudioSource,
                 // danach liest der Feed die Samples und nullt den direkten Mix.

@@ -118,6 +118,7 @@ Ziel: Funkgeräte als **optionale** Welt-Objekte — die Stimme läuft über ein
 - [x] Zwei-Client-Stabilisierung: Tap-Recovery pro Empfangspfad, verlustfreier PTT-Sync und harter Sidetone-Reichweiten-Cutoff
 - [x] Persistente Zwei-Client-Diagnose: pro Gerät Distanz/Falloff/Filter/Stream sowie PTT-Sync-, Tap-Recovery- und Capture-Tap-Status in `EarshotLogs`
 - [x] Sidetone ohne zweites Mikrofon: lokales Signal über Vivox `VivoxCaptureSourceTap`, direkte Tap-Ausgabe bleibt stumm
+- [x] PTT-Wiederholbarkeit: Registry verfolgt die exakte Senderinstanz; Capture-Tap-Source bleibt hart aus dem direkten 2D-Mix entfernt
 - [ ] Hörtest: zwei Walkies in der Testszene / im Spiel, alle Verhaltensregeln einzeln verifiziert
 - [ ] Bewusst nicht in V1: Squelch-Knacksen, Reichweitenlimit/Batterie, dominanter Pfad mit weicher Überblendung
 

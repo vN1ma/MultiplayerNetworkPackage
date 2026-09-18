@@ -10,6 +10,11 @@ Auswirkung: welches Arbeitspaket/welche Datei betroffen ist
 ```
 
 
+## [2026-09-18] Lokaler PTT-Zustand verfolgt die Senderinstanz
+Kontext: Sitzungslog zeigte direkt nach `WALKIE PTT aus`, dass Registry, Vivox-Sync und Hand-Walkie weiterhin `tx=True`/Sidetone meldeten.
+Entscheidung/Fakt: Die Registry darf beim Stoppen nicht erneut `device.IsTransmitting` pruefen, nachdem dieses Flag bereits geloescht wurde. Sie speichert die exakte Senderreferenz; nur diese Instanz (oder erzwungenes Cleanup) beendet den globalen Zustand.
+Auswirkung: `WalkieTalkieRegistry`; wiederholtes PTT funktioniert und das Hand-Walkie wird nach Loslassen nicht zum Sidetone-Empfaenger.
+
 ## [2026-09-18] Sidetone nutzt Vivox Capture Source Tap
 Kontext: Unity-Diagnoselog zeigte bei null Walkie-Ausgang weiterhin lokales Monitoring, sobald `Microphone.Start` das virtuelle Parsec-Eingabegeraet oeffnete; Vivox dokumentiert `VivoxCaptureSourceTap` fuer das lokale Capture-Signal.
 Entscheidung/Fakt: Sidetone verwendet den bereits von Vivox geoeffneten Capture-Stream und oeffnet nie ein zweites Unity-Mikrofon. Das Tap wird selbst aus dem finalen Mix genullt; hoerbar bleibt es nur ueber raeumliche `WalkieDeviceOutput`s.

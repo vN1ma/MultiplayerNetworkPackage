@@ -13,7 +13,8 @@ Neueste Einträge oben. Format (siehe `.clinerules/01-workflow.md`):
 ## [2026-09-18] – Walkie-Empfang, PTT-Sync und Sidetone-Reichweite stabilisiert
 - Tap-Recovery arbeitet pro Proximity-/Funkpfad statt pro Spieler und baut absichtlich stille Taps nicht mehr in einer Schleife neu auf. PTT-Aenderungen waehrend eines Vivox-Syncs werden nachgezogen; Sidetone endet hart an der Geraete-Hoergrenze und nutzt den aktiven AudioListener.
 - Sidetone verwendet nun `VivoxCaptureSourceTap` statt das Eingabegerät mit `Microphone.Start` ein zweites Mal zu öffnen. Persistente Sitzungslogs erfassen zusätzlich Walkie-Ausgang, Entfernung/Falloff, Lautstärke, Filter, Capture-Tap-Status sowie Sync-/Recovery-Dauern.
-- Betroffene Dateien: `IVoiceBackend.cs`, `VivoxVoiceBackend.cs`, `VoiceRuntime.cs`, `VoiceSessionLog.cs`, `EarshotWalkieTalkie.cs`, `WalkieRadioSync.cs`, `WalkieDeviceOutput.cs`, `WalkieSidetoneCapture.cs`
+- PTT-Loslassen löscht nun zuverlässig die exakte Senderinstanz aus der Registry. Der Vivox-Capture-Tap ist zusätzlich auf Source-Lautstärke null festgesetzt, damit nur räumliche Walkie-Ausgänge hörbar sind.
+- Betroffene Dateien: `IVoiceBackend.cs`, `VivoxVoiceBackend.cs`, `VoiceRuntime.cs`, `VoiceSessionLog.cs`, `EarshotWalkieTalkie.cs`, `WalkieTalkieRegistry.cs`, `WalkieRadioSync.cs`, `WalkieDeviceOutput.cs`, `WalkieSidetoneCapture.cs`
 
 ## [2026-09-06] – Schall folgt dem Laufweg, nicht der Luftlinie
 - Zwischen Raeumen zaehlt der Weg durch Tueren und Treppen. Luftlinie durch Decke oder Schacht macht die Stimme nicht mehr ploetzlich laut oder leise. Knapp neben einer Zone (Treppe) gilt der naechste Raum.
