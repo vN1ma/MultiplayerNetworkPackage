@@ -10,7 +10,7 @@ namespace Earshot.Voice
     [AddComponentMenu("")]
     internal sealed class WalkieSidetoneCapture : MonoBehaviour
     {
-        private const string DiagnosticRevision = "capture-unmute-v7";
+        private const string DiagnosticRevision = "proximity-pin-v9";
 
         private VivoxCaptureSourceTap captureTap;
         private WalkieVivoxCaptureFeed feed;
@@ -29,7 +29,6 @@ namespace Earshot.Voice
         private float nextRegisterRetry;
         private string[] txChannelSnapshot = new string[0];
         private float nextTxSnapshotRefresh;
-        private bool reportedWaitingForTxConfirm;
 
         internal static WalkieSidetoneCapture EnsureOn(VoiceRuntime runtime)
         {
@@ -89,7 +88,7 @@ namespace Earshot.Voice
 
             if (wanted && Time.unscaledTime >= nextFlowDiagnostic)
             {
-                nextFlowDiagnostic = Time.unscaledTime + 2f;
+                nextFlowDiagnostic = Time.unscaledTime + 1f;
                 feed.ConsumeDiagnostics(out int callbacks, out int signalBlocks, out float peak);
                 float directOutputPeak = ReadDirectOutputPeak();
                 RefreshTxChannelSnapshot();
@@ -147,9 +146,9 @@ namespace Earshot.Voice
                 feed = tapObject.AddComponent<WalkieVivoxCaptureFeed>();
                 feed.Configure(SafeOutputSampleRate());
 
-                // WICHTIG: Tap auf den aktiven Sende-Kanal pinnen — aber erst,
-                // nachdem Vivox den Sende-Wechsel bestaetigt hat (Begrundung im
-                // Kommentar von TryPinTapToActiveChannel, Revision v6).
+                // WICHTIG: Tap permanent auf den Proximity-Kanal pinnen —
+                // Funkkanal-Pins liefern nachweislich keine native Daten
+                // (Begruendung im Kommentar von TryPinTapToActiveChannel, v9).
                 TryPinTapToActiveChannel();
 
                 VoiceSessionLog.Note(
@@ -172,28 +171,24 @@ namespace Earshot.Voice
         }
 
         /// <summary>
-        /// Pinnt den Capture-Tap auf den Kanal, auf dem der lokale Teilnehmer laut
-        /// Vivox WIRKLICH sendet.
-        /// v7-Kernbefund (Log 20260918-0735): Der wahre Killer war das seit
-        /// 'capture-hardmute-v2' (cc68dba) gesetzte tapSource.mute — es NULLT die
-        /// Samples, die OnAudioFilterRead erreichen (Callback feuert weiter mit
-        /// callbacks&gt;0, liefert aber inputPeak=0.0000), solange native Daten im
-        /// Clip liegen (sourcePlaying=True). Beweis: 07:35:28-31 Tap+TX auf
-        /// Proximity, sourcePlaying=True, callbacks=67 — und trotzdem nur Nullen.
-        /// Der einzige gute Lauf (20260918-0551) lief VOR dem Mute. Die
-        /// v3-v6-Kanaltheorien waren Fehldeutungen desselben Symptoms.
-        /// Die TX-Bestaetigungs-Logik aus v6 bleibt trotzdem sinnvoll (reduziert
-        /// Registrierungs-Churn und haelt Tap und Sende-Kanal konsistent):
-        /// Waehrend PTT wird erst dann auf den Funkkanal (earshot-radio-&lt;id&gt;,
-        /// punktfrei — Vivox' Namens-Lookup kuerzt Namen mit Punkt ab) gepinnt,
-        /// wenn Vivox ihn in TransmittingChannels meldet. Bis zur Bestaetigung
-        /// bleibt der Tap unangetastet (i. d. R. auf Proximity) und liefert
-        /// sofort Sidetone, solange TX noch dort laeuft. Im Ruhezustand wird auf
-        /// Proximity gepinnt.
-        /// Offene Frage fuer den v7-Test: Liefert der native Tap auf dem
-        /// Funkkanal Daten, wenn tapInTx=True? Falls nein (sourcePlaying=False
-        /// trotz Sprechen), ist Plan B noetig (Tap auf Proximity lassen oder
-        /// lokales Mikrofon-Loopback).
+        /// Pinnt den Capture-Tap PERMANENT auf den Proximity-Kanal — auch und
+        /// gerade waehrend Funk-PTT (v9).
+        /// Beweislage (Logs 20260918-093346 und -094023, beide v7):
+        /// - Auf dem Funkkanal ('earshot-radio-...') gepinnte Taps liefern NIE
+        ///   native Daten: Der VivoxAudioProcessor haelt die Quelle nach 20x
+        ///   NoMoreData an (sourcePlaying=False), signalBlocks=0. Die
+        ///   signalBlocks=5 direkt nach jedem Funk-Pin sind der ~100-ms-Rest-
+        ///   puffer der vorherigen Proximity-Registrierung — genau der kurze
+        ///   Sidetone-Blitz, den der Nutzer beim ersten Reinsprechen hoerte.
+        /// - Auf dem echten Proximity-Kanal gepinnte Taps liefern Daten
+        ///   (sourcePlaying=True, directOutputPeak bis 0.068). Auch der einzige
+        ///   gute Lauf (20260918-0551) hatte Tap UND TX auf Proximity.
+        /// Offene Frage des v9-Tests: Liefert der Proximity-Tap auch Daten,
+        /// waehrend TX auf dem Funkkanal laeuft? Falls nein (signalBlocks=0 und
+        /// inputPeak=0 trotz Sprechen, tapChannel=Proximity, tapInTx=False),
+        /// ist Plan C noetig: lokales Mikrofon-Loopback statt Vivox-Capture-Tap.
+        /// Nebenwirkung des Fix: keine Neu-Registrierung mehr bei jedem PTT —
+        /// der Latenzpuffer bleibt erhalten, Sidetone startet sofort.
         /// Reihenfolge wichtig: AutoAcquireChannel ZUERST abschalten. Der
         /// ChannelName-Setter ist sonst ein No-Opt, wenn Vivox den Namen bereits
         /// automatisch gesetzt hat (Early-Return bei gleichem Namen — Log-Beweis:
@@ -203,40 +198,10 @@ namespace Earshot.Voice
         {
             if (captureTap == null) return;
 
-            string desired;
-            if (WalkieTalkieRegistry.LocalIsTransmitting &&
-                !string.IsNullOrEmpty(WalkieTalkieRegistry.LocalTransmitChannelId))
-            {
-                // v6: Erst pinnen, wenn Vivox den Sende-Wechsel zum Funkkanal
-                // bestaetigt hat. Ein Pin vor dem abgeschlossenen TX-Wechsel
-                // registriert den Tap auf dem alten Sende-Kanal und bleibt
-                // danach stumm (Log 20260918-0710).
-                string radioName = WalkieRules.ToVivoxRadioChannel(WalkieTalkieRegistry.LocalTransmitChannelId);
-                desired = IsTransmittingOn(radioName) ? radioName : null;
-
-                if (desired == null)
-                {
-                    // TX-Wechsel noch nicht bestaetigt: Tap unangetastet lassen.
-                    if (!reportedWaitingForTxConfirm)
-                    {
-                        reportedWaitingForTxConfirm = true;
-                        RefreshTxChannelSnapshot();
-                        VoiceSessionLog.Note(
-                            $"WALKIE Sidetone-Tap wartet auf TX-Bestaetigung fuer '{radioName}' " +
-                            $"(Vivox-Sendekanaele: [{string.Join(" | ", txChannelSnapshot)}])");
-                    }
-                    return;
-                }
-                reportedWaitingForTxConfirm = false;
-            }
-            else
-            {
-                reportedWaitingForTxConfirm = false;
-                var vivoxBackend = VoiceRuntime.Instance != null
-                    ? VoiceRuntime.Instance.Backend as VivoxVoiceBackend
-                    : null;
-                desired = vivoxBackend != null ? vivoxBackend.ProximityChannelName : null;
-            }
+            var vivoxBackend = VoiceRuntime.Instance != null
+                ? VoiceRuntime.Instance.Backend as VivoxVoiceBackend
+                : null;
+            string desired = vivoxBackend != null ? vivoxBackend.ProximityChannelName : null;
 
             if (string.IsNullOrEmpty(desired))
             {
@@ -244,7 +209,7 @@ namespace Earshot.Voice
                 {
                     reportedMissingPinTarget = true;
                     VoiceSessionLog.Alert(
-                        "WALKIE Sidetone-Tap: kein Pin-Ziel bekannt (weder Funk- noch Proximity-Kanal).");
+                        "WALKIE Sidetone-Tap: kein Pin-Ziel bekannt (Proximity-Kanal-Name fehlt).");
                 }
                 return;
             }
@@ -297,18 +262,6 @@ namespace Earshot.Voice
                     $"WALKIE Sidetone-Tap-Registration fehlgeschlagen: TapId={captureTap.TapId} " +
                     "(negativ = Vivox-Fehlercode, Details in der Unity-Konsole).");
             }
-        }
-
-        /// <summary>
-        /// True, wenn Vivox meldet, dass der lokale Teilnehmer in den Kanal sendet.
-        /// Gedrosselt ueber einen 0,1-s-Snapshot, weil TransmittingChannels bei
-        /// jedem Abruf allokiert.
-        /// </summary>
-        private bool IsTransmittingOn(string channelName)
-        {
-            if (string.IsNullOrEmpty(channelName)) return false;
-            RefreshTxChannelSnapshot();
-            return ContainsChannel(txChannelSnapshot, channelName);
         }
 
         private static bool ContainsChannel(string[] channels, string channelName)
@@ -521,7 +474,9 @@ namespace Earshot.Voice
             }
 
             envelope += (peak - envelope) * (peak > envelope ? 0.5f : 0.15f);
-            diagnosticPeak = peak;
+            // Fenster-Maximum statt Momentanwert: v7-Diagnose zeigte inputPeak=0
+            // trotz signalBlocks=5, weil hier immer nur der letzte Buffer stand.
+            if (peak > diagnosticPeak) diagnosticPeak = peak;
             if (peak >= GateCloseThreshold)
             {
                 System.Threading.Interlocked.Increment(ref diagnosticSignalBlocks);

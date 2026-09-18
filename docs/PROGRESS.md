@@ -6,7 +6,7 @@
 
 Status: Sidetone, Fan-out an alle Empfangs-Geraete und First-Speaker-Lock sind drin. Optik/Input bleiben im Game-Repo — siehe `docs/walkie-talkie-game-integration.md`. Debug-Verlauf (Symptome, gescheiterte Ansaetze, Log-Beweise): `docs/walkie-talkie-debug-history.md`.
 
-Nächster Schritt: Package-Revision `capture-unmute-v7` im Spiel updaten (Fix: `AudioSource.mute` auf der Tap-Source nullte die Samples in `OnAudioFilterRead` — der Root-Cause hinter allen stummen v3–v6-Läufen), allein Sidetone testen; zu zweit Freeze/Radio.
+Nächster Schritt: Package-Revision `proximity-pin-v9` im Spiel updaten (Unity wegen Package-Cache neu starten!) und allein testen. v9 pinnen den Vivox-Capture-Tap permanent auf den Proximity-Kanal: Funkkanal-Pins lieferten in allen Logs nie native Daten (nur den ~100-ms-Restpuffer, der als Sidetone-Blitz hörbar war). Wenn auch der Proximity-Tap während Funk-TX stumm bleibt, folgt Plan C (lokales Mikrofon-Loopback).
 
 ---
 

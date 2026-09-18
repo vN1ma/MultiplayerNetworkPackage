@@ -10,6 +10,11 @@ Neueste Einträge oben. Format (siehe `.clinerules/01-workflow.md`):
 ```
 
 
+## [2026-09-18] – Walkie-Sidetone: Tap permanent auf Proximity gepinnt (proximity-pin-v9)
+- Der Vivox-Capture-Tap wird nicht mehr bei PTT auf den Funkkanal umgepinnt: Funkkanal-Pins lieferten in allen Logs nie native Daten (Quelle pausierte nach NoMoreData; die einzigen Signal-Blöcke waren der ~100-ms-Restpuffer der vorherigen Proximity-Registrierung — der kurz hörbare Sidetone-Blitz). Der Tap bleibt jetzt permanent auf dem Proximity-Kanal registriert, was den einzigen belegten Datenpfad nutzt und PTT-seitige Neu-Registrierungen samt Latenzpuffer-Verlust vermeidet.
+- Diagnose korrigiert: `inputPeak` ist jetzt ein Fenster-Maximum seit dem letzten FLOW-Log (zuvor Momentanwert des letzten Buffers, der trotz `signalBlocks=5` immer 0.0000 zeigte); FLOW-Log jetzt sekündlich statt alle 2 s.
+- Betroffene Dateien: `WalkieSidetoneCapture.cs`, `docs/walkie-talkie-debug-history.md` (Phase M), `docs/PROGRESS.md`, `CHANGELOG.md`
+
 ## [2026-09-18] – Walkie-Empfang, PTT-Sync und Sidetone-Reichweite stabilisiert
 - Tap-Recovery arbeitet pro Proximity-/Funkpfad statt pro Spieler und baut absichtlich stille Taps nicht mehr in einer Schleife neu auf. PTT-Aenderungen waehrend eines Vivox-Syncs werden nachgezogen; Sidetone endet hart an der Geraete-Hoergrenze und nutzt den aktiven AudioListener.
 - Sidetone verwendet nun `VivoxCaptureSourceTap` statt das Eingabegerät mit `Microphone.Start` ein zweites Mal zu öffnen. Persistente Sitzungslogs erfassen zusätzlich Walkie-Ausgang, Entfernung/Falloff, Lautstärke, Filter, Capture-Tap-Status sowie Sync-/Recovery-Dauern.

@@ -280,7 +280,7 @@ if (channelNameToLookup.Contains("."))
 
 **Restrisiko:** Falls `tapInTx=True` und trotzdem `inputPeak=0` bleibt, liefert der native Tap auch nach bestätigtem TX nichts — dann ist die native Capture-Speisung unter `TransmissionMode.Single` endgültig tot und Plan B wird umgesetzt (Sidetone ohne Kanalbezug: lokales Mikrofon separat anzapfen statt über den Vivox-Capture-Tap).
 
-### Phase L — `AudioSource.mute` nullte den Filter-Datenpfad (`capture-unmute-v7`, aktuell)
+### Phase L — `AudioSource.mute` nullte den Filter-Datenpfad (`capture-unmute-v7`, Mute-Fix bleibt, Kanal-Following superseded durch Phase M)
 
 **Symptom:** Solo-PTT-Test auf `capture-follows-tx-v6` (Log `20260918-0735`): v6 arbeitete exakt wie designed (Warten auf TX-Bestaetigung, Pin **nach** `FUNK sendet`, `tapInTx=True`) — aber weiterhin `signalBlocks=0`, `inputPeak=0.0000` in allen Zyklen.
 
@@ -307,6 +307,35 @@ if (channelNameToLookup.Contains("."))
 
 ---
 
+### Phase M — Funkkanal-Taps liefern nie Daten; Tap bleibt permanent auf Proximity (`proximity-pin-v9`, aktuell)
+
+**Symptom:** v7-Testläufe (Logs `20260918-093346` und `20260918-094023`, beide `capture-unmute-v7`): `sourceMute=False`, aber `inputPeak=0.0000` in allen FLOW-Zeilen. Nutzer hörte beim ersten Reinsprechen einen ~100-ms-Sidetone-Blitz, danach Stille.
+
+**Ursachen-Analyse (beide v7-Logs):**
+
+- `signalBlocks=5` unmittelbar nach **jedem** Funk-Pin (09:33:55, 09:34:11, 09:40:43) — der Feed sah sehr wohl echte Daten, aber nur ~100 ms lang. Das ist der Restpuffer der vorherigen **Proximity**-Registrierung, den die Source nach dem Umpinnen abspielt, bevor `VivoxAudioProcessor` nach 20× `NoMoreData` pausiert. Genau dieser Restpuffer war der hörbare Blitz.
+- Auf dem Funkkanal (`earshot-radio-*`) gepinnte Taps: in **jeder** FLOW-Zeile nach den ersten ~100 ms `sourcePlaying=False` (NoMoreData-Pause) und `signalBlocks=0` — der native Tap liefert für unsere selbstgebauten Funkkanäle **nie** Daten (vermutlich adressiert das Channel-URI kein gültiges Capture-Session-Objekt).
+- Auf dem echten Proximity-Kanal gepinnte Taps: `sourcePlaying=True`, `directOutputPeak` bis 0.068557 (09:40:41.370) — native Daten fließen. Auch der einzige gute Lauf 0551 hatte Tap UND TX auf Proximity.
+- Nebenerkenntnis: `inputPeak` war ein Momentanwert (letzter Buffer) und zeigte deshalb trotz `signalBlocks=5` immer 0.0000 — Diagnose-Messwert war irreführend.
+- Git-Befund: Der laut Notiz existierende v8-Commit (`pin-on-ptt-v8`) fehlt im Repo (HEAD = `fa94709`/v7); alle Läufe ab 09:33 liefen auf v7. Der v8-Ansatz (sofortiger Funk-Pin bei PTT) wäre ohnehin der falsche Weg gewesen, da Funkkanal-Taps nachweislich tot sind.
+
+**Fix (v9, `WalkieSidetoneCapture.cs`):**
+
+1. `TryPinTapToActiveChannel` pinnt **permanent** auf den Proximity-Kanal — Funkkanal-Pinning komplett entfernt, inkl. v6-TX-Bestätigungs-Gate, `IsTransmittingOn`, `reportedWaitingForTxConfirm` und `WalkieRules.ToVivoxRadioChannel`-Nutzung.
+2. Kein Re-Pin bei PTT → keine Neu-Registrierung → Latenzpuffer bleibt über PTT-Wechsel erhalten, Sidetone startet sofort.
+3. `inputPeak` ist jetzt Fenster-Maximum seit dem letzten FLOW-Log (statt Momentanwert); FLOW-Intervall 2 s → 1 s.
+4. Revision `proximity-pin-v9`.
+
+**Erfolgskriterium im nächsten Solo-Log:**
+
+- `revision='proximity-pin-v9'`, genau **ein** Pin auf den Proximity-Kanal nach Verbindung, kein weiterer Pin bei PTT
+- Beim Sprechen mit Funk-PTT: `tapChannel=<Proximity-URI>`, `tapInTx=False`, `sourcePlaying=True`, `signalBlocks>0`, `inputPeak>0` → durchgehender Sidetone
+- Direktausgabe bleibt stumm (Feed-Nullung), Sidetone nur über `WalkieDeviceOutput`
+
+**Restrisiko:** Falls der Proximity-Tap während Funk-TX **keine** Daten mehr liefert (Capture folgt dem TX-Kanal), bleibt nur Plan C: lokales Mikrofon-Loopback statt Vivox-Capture-Tap — der Funkkanal-Tap ist als Alternative endgültig ausgeschlossen.
+
+---
+
 
 ## 6. Warum es sich anfühlt, als kämen wir nicht weiter
 
@@ -324,8 +353,8 @@ Nach Package-Update im Spiel (`capture-follows-tx-v6`) und einem Solo-PTT-Test:
 
 1. Datei unter `HOTEL_GAME/EarshotLogs/voice-*.txt` öffnen.
 2. Einmalig: `AUDIO DEVICES: …`
-3. Bei PTT: `WALKIE Vivox-Capture-Tap erstellt … revision='capture-follows-tx-v6'` (erst `wartet auf TX-Bestaetigung`, dann Pin **nach** `FUNK sendet`) und `WALKIE Sidetone-Tap auf Kanal 'earshot-radio-default' gepinnt … autoAcquire=False`
-4. Periodisch: `WALKIE CAPTURE FLOW: … inputPeak=… directOutputPeak=… sourceMute=True …`
+3. Nach Verbindung: `WALKIE Vivox-Capture-Tap erstellt … revision='proximity-pin-v9'` und genau ein `WALKIE Sidetone-Tap auf Kanal '<Proximity-URI>' gepinnt … autoAcquire=False` (kein weiterer Pin bei PTT)
+4. Periodisch während PTT: `WALKIE CAPTURE FLOW: … inputPeak=… directOutputPeak=… sourceMute=False …`
 5. Weit weg: `WALKIE OUTPUT AUS … OUT_OF_RANGE … actual=0`
 6. Nah am Boden-Walkie: `WALKIE OUTPUT AN … mode=SIDETONE …`
 7. Subjektiv mit Log abgleichen und dokumentieren.
@@ -356,12 +385,13 @@ Interpretation:
 Vivox Capture (ein Mic, bereits offen)
         │
         ▼
-VivoxCaptureSourceTap + AudioSource (mute=true, volume=1)
+VivoxCaptureSourceTap + AudioSource (mute=false seit v7, volume=1,
+persistent auf Proximity-Kanal gepinnt seit v9)
         │
         ├─ OnAudioFilterRead (Feed): Downmix → Gate → WalkieRadioBus (__local__)
         │                              └─ data[] = 0
         │
-        └─ Unity-Mix: durch Mute (soll) kein hörbarer Direktausgang
+        └─ Unity-Mix: durch Feed-Nullung kein hörbarer Direktausgang
 
 WalkieRadioBus
         │
@@ -394,9 +424,9 @@ jedes WalkieDeviceOutput (3D, EQ, Delay, Distanz-Cutoff)
 
 ## 11. Nächste Schritte (kurz)
 
-1. Spiel auf Package-Revision `capture-unmute-v7` aktualisieren (alle Clients!), Solo-Hörtest + Log prüfen (Phase-L-Kriterien, Abschnitt 5).
+1. Spiel auf Package-Revision `proximity-pin-v9` aktualisieren (alle Clients!, Unity wegen Package-Cache neu starten), Solo-Hörtest + Log prüfen (Phase-M-Kriterien, Abschnitt 5).
 2. Wenn Solo ok: Zwei-Client-Test (Freeze + Radio-Effekt).
-3. Wenn auf dem Funkkanal `tapInTx=True` aber `sourcePlaying=False`/`inputPeak=0` beim Sprechen bleibt: Plan B umsetzen (Tap während Funk-TX auf Proximity pinnen bzw. lokales Mikrofon-Loopback, Phase L).
+3. Wenn trotz `tapChannel=<Proximity>` und Sprechen `signalBlocks=0`/`inputPeak=0` bleibt (Capture folgt TX-Kanal): Plan C umsetzen — lokales Mikrofon-Loopback statt Vivox-Capture-Tap (Phase M). Funkkanal-Taps sind endgültig out.
 4. Erst wenn Hörtest grün: Phase-4-Checkbox „Hörtest“ in `PROGRESS.md` abhaken.
 
 ---

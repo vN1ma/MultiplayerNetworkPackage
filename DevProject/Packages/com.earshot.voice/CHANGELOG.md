@@ -61,6 +61,15 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Behoben
 
+- Walkie-Sidetone war nur als ~100-ms-Blitz hörbar und verstummte danach: Auf dem
+  Funkkanal (`earshot-radio-*`) gepinnte Capture-Taps liefern nie native Daten
+  (Quelle pausiert nach `NoMoreData`); die einzigen Signal-Blöcke stammten aus dem
+  Restpuffer der vorherigen Proximity-Registrierung. Der Tap wird jetzt permanent
+  auf dem Proximity-Kanal gepinnt (Revision `proximity-pin-v9`) — der einzige
+  belegte Datenpfad. Nebenbei entfällt die Neu-Registrierung bei jedem PTT, der
+  Latenzpuffer bleibt erhalten. `inputPeak` ist jetzt ein Fenster-Maximum statt
+  des Momentanwerts des letzten Buffers (der zeigte trotz `signalBlocks=5` immer
+  0.0000), das FLOW-Log erscheint sekündlich statt alle 2 s.
 - `SetTransmitting(false)` konnte den globalen PTT-Zustand nicht loeschen, weil das
   Geraete-Flag bereits vorher auf `false` stand. Die Registry merkt sich jetzt die
   exakte Senderinstanz; Loslassen beendet Half-Duplex und Sidetone sofort und dauerhaft.
