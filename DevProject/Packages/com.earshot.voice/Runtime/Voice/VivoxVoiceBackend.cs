@@ -26,6 +26,13 @@ namespace Earshot.Voice
 
         public bool IsConnected => !string.IsNullOrEmpty(proximityChannelName);
 
+        /// <summary>
+        /// Name des Proximity-Kanals der aktiven Sitzung. Null, solange keine Sitzung laeuft.
+        /// Dient dazu, den Sidetone-Capture-Tap stabil auf genau diesen Kanal zu pinnen,
+        /// statt Vivox' Auto-Acquire auf den jeweils zuletzt gejointen Kanal umspringen zu lassen.
+        /// </summary>
+        public string ProximityChannelName => proximityChannelName;
+
         public event Action<VoiceSpeaker> SpeakerAdded;
         public event Action<VoiceSpeakerKey> SpeakerRemoved;
 

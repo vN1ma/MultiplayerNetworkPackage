@@ -4,9 +4,9 @@
 
 **Phase 4 in Arbeit — Walkie-Talkie**
 
-Status: Sidetone, Fan-out an alle Empfangs-Geraete und First-Speaker-Lock sind drin. Optik/Input bleiben im Game-Repo — siehe `docs/walkie-talkie-game-integration.md`.
+Status: Sidetone, Fan-out an alle Empfangs-Geraete und First-Speaker-Lock sind drin. Optik/Input bleiben im Game-Repo — siehe `docs/walkie-talkie-game-integration.md`. Debug-Verlauf (Symptome, gescheiterte Ansaetze, Log-Beweise): `docs/walkie-talkie-debug-history.md`.
 
-Nächster Schritt: Package pushen, im Spiel updaten, allein Sidetone am Boden-Walkie testen; zu zweit First-Speaker.
+Nächster Schritt: Package-Revision `capture-pin-proximity-v3` im Spiel updaten (Capture-Tap auf Proximity gepinnt), allein Sidetone + Capture-Mute testen; zu zweit Freeze/Radio.
 
 ---
 

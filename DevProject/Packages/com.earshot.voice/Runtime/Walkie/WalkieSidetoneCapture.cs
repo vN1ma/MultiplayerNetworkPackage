@@ -10,7 +10,7 @@ namespace Earshot.Voice
     [AddComponentMenu("")]
     internal sealed class WalkieSidetoneCapture : MonoBehaviour
     {
-        private const string DiagnosticRevision = "capture-hardmute-v2";
+        private const string DiagnosticRevision = "capture-pin-proximity-v3";
 
         private VivoxCaptureSourceTap captureTap;
         private WalkieVivoxCaptureFeed feed;
@@ -40,6 +40,7 @@ namespace Earshot.Voice
         {
             WalkieTalkieRegistry.EnsureLocalTransmitStillValid();
             EnsureCaptureTap();
+            TryPinTapToProximityChannel(false);
             EnforceDirectOutputMute();
 
             bool ready = captureTap != null && captureTap.TapId >= 0 && feed != null;
@@ -85,7 +86,9 @@ namespace Earshot.Voice
                 feed.ConsumeDiagnostics(out int callbacks, out int signalBlocks, out float peak);
                 float directOutputPeak = ReadDirectOutputPeak();
                 VoiceSessionLog.Note(
-                    $"WALKIE CAPTURE FLOW: TapId={captureTap.TapId}, callbacks={callbacks}, " +
+                    $"WALKIE CAPTURE FLOW: TapId={captureTap.TapId}, " +
+                    $"tapChannel='{captureTap.ChannelName}', autoAcquire={captureTap.AutoAcquireChannel}, " +
+                    $"callbacks={callbacks}, " +
                     $"signalBlocks={signalBlocks}, inputPeak={peak:0.0000}, " +
                     $"directOutputPeak={directOutputPeak:0.000000}, sourcePlaying={tapSource.isPlaying}, " +
                     $"sourceMute={tapSource.mute}, sourceVolume={tapSource.volume:0.000}, " +
@@ -129,8 +132,17 @@ namespace Earshot.Voice
                 feed = tapObject.AddComponent<WalkieVivoxCaptureFeed>();
                 feed.Configure(SafeOutputSampleRate());
 
+                // WICHTIG: Tap fest auf den Proximity-Kanal pinnen, BEVOR Funkkanaele
+                // gejoint werden. Vivox' Auto-Acquire umregistriert den Tap sonst bei
+                // JEDEM Kanal-Join auf den zuletzt gejointen Kanal - also auf den
+                // Funkkanal, sobald ein Walkie an ist. Der native Capture-Tap liefert
+                // in diesem Zustand waehrend der Funk-Transmission dauerhaft
+                // NoMoreData und der Sidetone bleibt stumm (Log-Beweis 20260918-0612).
+                TryPinTapToProximityChannel(true);
+
                 VoiceSessionLog.Note(
                     $"WALKIE Vivox-Capture-Tap erstellt: TapId={captureTap.TapId}, " +
+                    $"channel='{captureTap.ChannelName}', autoAcquire={captureTap.AutoAcquireChannel}, " +
                     $"input='{EarshotVoice.ActiveInputDeviceName}', hardMute={tapSource.mute}, " +
                     $"revision='{DiagnosticRevision}'");
                 LogAudioDeviceInventory();
@@ -144,6 +156,56 @@ namespace Earshot.Voice
                 tapSource = null;
                 VoiceSessionLog.Alert(
                     "WALKIE Vivox-Capture-Tap konnte nicht erstellt werden: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Pinnt den Capture-Tap fest auf den Proximity-Kanal. Der ChannelName-Setter
+        /// deaktiviert AutoAcquireChannel und registriert den Tap sofort auf genau
+        /// diesen Kanal neu. Ohne Pinning wuerde Vivox den Tap bei jedem Kanal-Join
+        /// (z.B. Walkie an) auf den Funkkanal umregistrieren - der Sidetone verstummt
+        /// dann fuer die gesamte PTT-Phase. Der Pin bleibt auch bei spaeteren
+        /// Funk-Joins/Leaves stabil, weil Vivox ohne Auto-Acquire nur beim Treffer
+        /// des gepinnten Kanals neu registriert.
+        /// </summary>
+        private void TryPinTapToProximityChannel(bool reportMissingChannel)
+        {
+            if (captureTap == null) return;
+
+            var vivoxBackend = VoiceRuntime.Instance != null
+                ? VoiceRuntime.Instance.Backend as VivoxVoiceBackend
+                : null;
+            string proximityChannel = vivoxBackend != null
+                ? vivoxBackend.ProximityChannelName
+                : null;
+            if (string.IsNullOrEmpty(proximityChannel))
+            {
+                if (reportMissingChannel)
+                {
+                    VoiceSessionLog.Alert(
+                        "WALKIE Sidetone-Tap konnte nicht gepinnt werden: Proximity-Kanalname unbekannt.");
+                }
+                return;
+            }
+
+            if (!captureTap.AutoAcquireChannel &&
+                string.Equals(captureTap.ChannelName, proximityChannel, System.StringComparison.OrdinalIgnoreCase))
+            {
+                return; // bereits gepinnt
+            }
+
+            captureTap.ChannelName = proximityChannel;
+
+            VoiceSessionLog.Note(
+                $"WALKIE Sidetone-Tap auf Proximity-Kanal '{proximityChannel}' gepinnt: " +
+                $"TapId={captureTap.TapId}, autoAcquire={captureTap.AutoAcquireChannel}, " +
+                $"revision='{DiagnosticRevision}'");
+
+            if (captureTap.TapId < 0)
+            {
+                VoiceSessionLog.Alert(
+                    $"WALKIE Sidetone-Tap-Pinning fehlgeschlagen: TapId={captureTap.TapId} " +
+                    "(negativ = Vivox-Fehlercode, Details in der Unity-Konsole).");
             }
         }
 
