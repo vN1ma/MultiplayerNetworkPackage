@@ -574,6 +574,26 @@ jedes WalkieDeviceOutput (3D, EQ, Delay, Distanz-Cutoff)
 
 `HandleDiagnosticHotkeys` (WalkieSidetoneCapture, Revision `leak-hunt-v14`): F8 leitet Vivox' Ausgabegerät auf das erste physische Gerät (kein VB-Audio/CABLE/Steam/Unusable) um, Unitys eigener Ton bleibt unberührt; nochmal F8 stellt zurück. Diskriminiert die letzten beiden Kandidaten für die „konstante Walkie-Stimme“: (a) Unity-Mix → F8 ändert nichts; (b) Vivox-native Wiedergabe (Teilnehmer ohne Tap, Echo-Loop) → F8 entfernt die Stimme sofort. Zusammen mit der v13-Teilnehmerzeile (`WALKIE RADIO KANAL ...`) ist damit jeder Fall eindeutig entscheidbar.
 
+**v14-Testergebnis (Log 20260918-222244, Revision leak-hunt-v14):**
+
+- Funkkanal: `WALKIE RADIO KANAL 'default': 1 Teilnehmer [ICH]` — **kein zweiter Client**, der v13-Hauptverdacht ist damit begraben.
+- F8 lief korrekt (Vivox → „Digitale Ausgabe“), die Stimme blieb hörbar → Vivox-native-Wiedergabe ausgeschlossen (war bei 1 Teilnehmer ohnehin unmöglich).
+- Nutzer sprach durchgehend 22:23:17–22:24:13; Walkies nur bis 22:23:41 AN (2,1–2,5 m, target ≈0,17), ab 22:23:44 (>8,3 m) alle stumm. Im 22:03-Log zusätzlich: **PTT + Sprechen bei 95 m** (22:04:40–44, clipPeak 0,20–0,59), alle Walkies `OUT_OF_RANGE, falloff=0,000`.
+- Nutzer-Checks: kein „Gerät abhören“ auf dem Laptop, keine Stimme ohne PTT (auch in-game nicht) → Laptop-Monitoring ausgeschlossen. `LifeMemoryAudioTap` (Game-Repo, AudioListener-Filter) geprüft: rein lesend (Ringpuffer für Todes-Flashback), kein Ausgabepfad.
+
+**v15-Diagnose — Master-Mix-Sonde + F12 (kein Verhaltens-Change):**
+
+Bleibt als letzte Messlücke: `GetOutputData` an AudioSources misst VOR `OnAudioFilterRead` — injizierte Samples (WalkieOutput, Tap) sind im AUDIO-INVENTAR prinzipbedingt unsichtbar. Ob Unity überhaupt Sprach-Samples Richtung Ausgabegerät schickt, war bisher nicht messbar.
+
+1. `masterPeak`/`masterRms` in den FLOW-Zeilen via `AudioListener.GetOutputData` — misst den ENDTLICHEN Mix am Listener, nach allen Filtern und Injektionen.
+2. **F12: Unity-GESAMTAUSGABE stumm** (`AudioListener.volume=0`, Toggle mit Restore des Vorher-Werts) — die Gegenprobe zu F8: Bleibt die Stimme bei gehaltener Sendetaste trotz F12 hörbar, kommt sie garantiert NICHT aus dem Unity-Prozess.
+
+**Testprotokoll v15:**
+
+1. Log muss `revision='leak-hunt-v15'` zeigen.
+2. >20 m von allen Walkies entfernen, Sendetaste halten: erst 5 s still (masterPeak-Basis = Ambience), dann normal sprechen. Steigt `masterPeak` deutlich über die Basis → Unity gibt doch Sprach-Samples aus (weitergraben). Bleibt er gleich → Unity gibt nichts her.
+3. Gleiche Position, F12 drücken: Kompletter Spielsound verstummt. Stimme trotzdem hörbar → Quelle ist außerhalb von Unity (dann bleibt nur noch die Kette Kabel→Parsec→Laptop oder die Wahrnehmung).
+
 ---
 
 *Dokument angelegt 2026-09-18. Bei jedem weiteren gescheiterten oder erfolgreichen Ansatz: hier einen kurzen Abschnitt ergänzen (Datum, Symptom, Hypothese, Fix, Log-Beweis, Ergebnis), nicht nur CHANGELOG-Zeilen.*

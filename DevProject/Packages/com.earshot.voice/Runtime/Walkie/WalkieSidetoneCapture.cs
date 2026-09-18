@@ -10,7 +10,7 @@ namespace Earshot.Voice
     [AddComponentMenu("")]
     internal sealed class WalkieSidetoneCapture : MonoBehaviour
     {
-        private const string DiagnosticRevision = "leak-hunt-v14";
+        private const string DiagnosticRevision = "leak-hunt-v15";
 
         private VivoxCaptureSourceTap captureTap;
         private WalkieVivoxCaptureFeed feed;
@@ -25,6 +25,9 @@ namespace Earshot.Voice
         private bool diagnosticLegacyVolume;
         private string diagnosticVivoxOutputBefore;
         private bool diagnosticSidetoneBlocked;
+        private bool diagnosticMasterMuted;
+        private float diagnosticMasterVolumeBefore = 1f;
+        private readonly float[] masterMixBuffer = new float[1024];
         private readonly float[] inventoryPeakBuffer = new float[256];
         private float nextInventoryLog;
         private bool lastWanted;
@@ -99,6 +102,7 @@ namespace Earshot.Voice
                 nextFlowDiagnostic = Time.unscaledTime + 1f;
                 feed.ConsumeDiagnostics(out int pulls, out int pulledFrames, out int signalBlocks, out float peak);
                 float directOutputPeak = ReadDirectOutputPeak();
+                ReadMasterMix(out float masterPeak, out float masterRms);
                 RefreshTxChannelSnapshot();
                 bool tapInTx = ContainsChannel(txChannelSnapshot, captureTap.ChannelName);
                 VoiceSessionLog.Note(
@@ -107,7 +111,9 @@ namespace Earshot.Voice
                     $"txChannels=[{string.Join(" | ", txChannelSnapshot)}], tapInTx={tapInTx}, " +
                     $"pulls={pulls}, pulledFrames={pulledFrames}, " +
                     $"signalBlocks={signalBlocks}, clipPeak={peak:0.0000}, " +
-                    $"directOutputPeak={directOutputPeak:0.000000}, sourcePlaying={tapSource.isPlaying}, " +
+                    $"directOutputPeak={directOutputPeak:0.000000}, " +
+                    $"masterPeak={masterPeak:0.000000}, masterRms={masterRms:0.000000}, " +
+                    $"sourcePlaying={tapSource.isPlaying}, " +
                     $"sourceMute={tapSource.mute}, sourceVolume={tapSource.volume:0.000}, " +
                     $"channel='{channel}', revision='{DiagnosticRevision}'");
                 LogAudioSourceInventory();
@@ -424,6 +430,34 @@ namespace Earshot.Voice
                       "hoerbar -> sie kommt NICHT aus den Walkie-Lautsprechern."
                     : "WALKIE DIAGNOSE F11: Sidetone-Datenfluss wieder freigegeben.");
             }
+
+            // v15: F12 stellt den GESAMTEN Unity-Mix stumm (AudioListener-Master).
+            // Bleibt die Stimme bei gehaltener Sendetaste trotzdem hoerbar, kommt
+            // sie nachweislich NICHT aus dem Unity-Prozess - die Gegenprobe zur
+            // F8-Umleitung (Vivox) und zum Master-Mix-Peak in den FLOW-Zeilen.
+            if (Input.GetKeyDown(KeyCode.F12))
+            {
+                diagnosticMasterMuted = !diagnosticMasterMuted;
+
+                if (diagnosticMasterMuted)
+                {
+                    diagnosticMasterVolumeBefore = AudioListener.volume;
+                    AudioListener.volume = 0f;
+                    VoiceSessionLog.Alert(
+                        "WALKIE DIAGNOSE F12: Unity-GESAMTAUSGABE STUMM (AudioListener-Master=0, " +
+                        "zuvor " + diagnosticMasterVolumeBefore.ToString("0.000") + "). Hoerst du " +
+                        "deine Stimme bei gehaltener Sendetaste TROTZDEM, kommt sie garantiert " +
+                        "NICHT aus Unity - nicht aus den Walkies, nicht aus dem Tap, nicht aus " +
+                        "irgendeiner Quelle des Spiels. Nochmal F12 stellt alles wieder her.");
+                }
+                else
+                {
+                    AudioListener.volume = diagnosticMasterVolumeBefore;
+                    VoiceSessionLog.Alert(
+                        "WALKIE DIAGNOSE F12: Unity-Gesamtausgabe wiederhergestellt (" +
+                        diagnosticMasterVolumeBefore.ToString("0.000") + ").");
+                }
+            }
         }
 
         /// <summary>
@@ -547,6 +581,44 @@ namespace Earshot.Voice
             catch
             {
                 return -1f;
+            }
+        }
+
+        /// <summary>
+        /// v15: Misst den ENDTLICHEN Unity-Mix am AudioListener - NACH allen
+        /// Filtern und Injektionen. GetOutputData an AudioSources laeuft VOR
+        /// OnAudioFilterRead und sieht injizierte Samples (WalkieOutput, Tap)
+        /// prinzipbedingt nicht; dieser Wert ist die einzige verlaessliche
+        /// Aussage darueber, was Unity insgesamt Richtung Ausgabegeraet
+        /// schickt. Vergleiche masterPeak bei Sprache vs. Stille - nur ein
+        /// Anstieg waehrend des Sprechens beweist eine Unity-Quelle.
+        /// </summary>
+        private void ReadMasterMix(out float peak, out float rms)
+        {
+            peak = -1f;
+            rms = -1f;
+
+            try
+            {
+                AudioListener.GetOutputData(masterMixBuffer, 0);
+
+                float localPeak = 0f;
+                double sum = 0;
+
+                for (int i = 0; i < masterMixBuffer.Length; i++)
+                {
+                    float sample = masterMixBuffer[i];
+                    float absolute = sample < 0f ? -sample : sample;
+                    if (absolute > localPeak) localPeak = absolute;
+                    sum += absolute;
+                }
+
+                peak = localPeak;
+                rms = (float)(sum / masterMixBuffer.Length);
+            }
+            catch
+            {
+                // Kein aktiver AudioListener - Messwerte bleiben -1.
             }
         }
 
