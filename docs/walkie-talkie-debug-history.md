@@ -467,4 +467,36 @@ jedes WalkieDeviceOutput (3D, EQ, Delay, Distanz-Cutoff)
 
 ---
 
+## 13. v11 — Ursache bewiesen: Tap-Direktausgabe trotz Feed-Nullung (2026-09-18, ~12:00)
+
+**v10-Solo-Test-Ergebnis (Log `voice-20260918-105955`):**
+
+- Symptom reproduziert: eigene Stimme ueberall gleich laut. **F9 → komplett stumm.**
+- Beweiskette (dreistufig):
+  1. Beim F9-Druck (11:00:24) war der Spieler >30 m von allen Walkies entfernt: Boden-Walkie `OUT_OF_RANGE` (falloff=0.000 seit 11:00:13), Hand-Walkie durch den `MinSidetoneSelfDistance`-Guard durchgehend stumm (vol=0.00). Die Stimme kam also **nicht** aus den Walkie-Lautsprechern — die räumliche Sidetone funktioniert korrekt (8 m Reichweite, quadratischer Falloff: 2.66 m → falloff 0.445, 7.68 m → 0.002, `OUT_OF_RANGE` ab 8 m).
+  2. F9 mutet nur die Tap-AudioSource → deren direkte 2D-Wiedergabe von `StreamClip1` (spatial=0.00, vol=1.00, ungemutet) war der hörbare Leak.
+  3. Die Feed-Nullung greift im hörbaren Pfad nicht: dasselbe Log zeigt `signalBlocks=37` (Feed bekam Mikro-Daten und nullte sie) bei gleichzeitig hörbarem Output. `directOutputPeak=0` ist damit endgültig als untauglicher Messwert entlarvt.
+- Ursachen-Modell: `VivoxAudioTap` nutzt **kein** OnAudioFilterRead — eine Coroutine (20 ms Takt) schreibt Mikro-Daten per `SetData` in einen 3-s-Ring-Buffer-Clip und `Play()`t ihn. Zur Laufzeit **nach** `Play()` hinzugefügte OnAudioFilterRead-Filter werden von Unity u. U. erst mit einem Neustart der Quelle in die hörbare DSP-Kette verkabelt. Mute wirkt auf einem anderen Stage (nachweislich sogar vor dem Filter) → F9 wirkte, die Nullung nicht.
+- 0735-Evidence neu bewertet und bestätigt: `mute=True` am **lebenden** Proximity-Kanal (TapId 1894): `callbacks=67, signalBlocks=0` → Mute nullt die Filter-Daten → dauerhaftes Muten wäre kein Fix (killt die Sidetone).
+- VB-Cable/OS-Loopback als Ursache: **widerlegt** (F9 ist ein rein Unity-seitiger Killswitch). Nutzer-Check: kein Selbsthören bei geschlossenem Spiel.
+
+**v11-Fix + Diagnose (`WalkieSidetoneCapture`, Revision `leak-hunt-v11`):**
+
+1. **Feed-vor-Tap-Anlage**: `WalkieVivoxCaptureFeed` wird jetzt vor `VivoxCaptureSourceTap` hinzugefügt — der Filter existiert damit vor jedem `Play()`.
+2. **Rewire-Zyklen**: Stop+Play der Tap-Source bei +1 s / +3 s / +7 s nach Erstellung erzwingt die Neuverkabelung des Filters in die hörbare Kette (Log: „WALKIE Tap-Source-Neustart (v11)“).
+3. **`outPeak` im AUDIO-INVENTAR**: GetOutputData-Pegel pro spielender Quelle — beweist künftig, welche Quelle wirklich Signal in den Mix gibt.
+4. **F10**: Tap-Volume 0/1 — testet, ob Volume (anders als mute) die Filter-Daten überleben lässt. `signalBlocks>0` bei `sourceVolume=0.000` wäre der Beweis, dass volume=0 ein valider Dauer-Fix ist.
+5. **F11**: Sidetone-Datenfluss-Abschaltung — bleibt die Stimme hörbar, kommt sie garantiert nicht aus den Walkie-Lautsprechern.
+
+**Testprotokoll v11:**
+
+1. Unity neu starten (Package-Cache!), Log muss `revision='leak-hunt-v11'` zeigen.
+2. Solo: PTT + sprechen, weit weg vom Walkie:
+   - Stimme weg (und in Walkie-Nähe räumlicher Sidetone hörbar) → **FIX OK**, Rewire war die Lösung.
+   - Stimme immer noch überall → **F10** drücken und weitersprechen: Stimme weg → Tap-Direktausgabe bestätigt; FLOW-Log prüfen (`signalBlocks>0` bei `sourceVolume=0.000` → volume=0 wird der Dauer-Fix in v12). Stimme bleibt → nicht die Tap-Source → `outPeak` im INVENTAR zeigt die echte Quelle.
+   - Zur Sicherheit **F11**: bleibt die Stimme hörbar, ist sie garantiert nicht aus den Walkies.
+3. Wenn weder Rewire noch volume=0 funktionieren (Rewire wirkt nicht UND volume nullt die Filter-Daten): v12-Optionen = stilles AudioMixer-Routing der Tap-Source (Mixer-Asset nötig) oder Reflektions-Lesen des Vivox-Ring-Buffers bei dauerhaft gemuteter Quelle.
+
+---
+
 *Dokument angelegt 2026-09-18. Bei jedem weiteren gescheiterten oder erfolgreichen Ansatz: hier einen kurzen Abschnitt ergänzen (Datum, Symptom, Hypothese, Fix, Log-Beweis, Ergebnis), nicht nur CHANGELOG-Zeilen.*

@@ -10,7 +10,11 @@ namespace Earshot.Voice
     [AddComponentMenu("")]
     internal sealed class WalkieSidetoneCapture : MonoBehaviour
     {
-        private const string DiagnosticRevision = "leak-hunt-v10";
+        private const string DiagnosticRevision = "leak-hunt-v11";
+
+        // v11: Zeitpunkte (Sekunden nach Tap-Erstellung), zu denen ein Stop+Play-
+        // Zyklus die Filter-Neuverkabelung erzwingt (siehe TryRewireTapFilter).
+        private static readonly float[] RewireScheduleSeconds = { 1f, 3f, 7f };
 
         private VivoxCaptureSourceTap captureTap;
         private WalkieVivoxCaptureFeed feed;
@@ -22,6 +26,11 @@ namespace Earshot.Voice
         private float nextFlowDiagnostic;
         private bool deviceInventoryLogged;
         private bool diagnosticHardMute;
+        private bool diagnosticVolumeZero;
+        private bool diagnosticSidetoneBlocked;
+        private float tapCreatedAt;
+        private int tapFilterRewireIndex;
+        private readonly float[] inventoryPeakBuffer = new float[256];
         private float nextInventoryLog;
         private bool lastWanted;
         private string lastChannel;
@@ -51,9 +60,11 @@ namespace Earshot.Voice
             TryPinTapToActiveChannel();
             EnforceDirectOutputUnmuted();
             HandleDiagnosticHotkeys();
+            TryRewireTapFilter();
 
             bool ready = captureTap != null && captureTap.TapId >= 0 && feed != null;
             bool wanted = ready &&
+                          !diagnosticSidetoneBlocked &&
                           WalkieTalkieRegistry.LocalIsTransmitting &&
                           !string.IsNullOrEmpty(WalkieTalkieRegistry.LocalTransmitChannelId);
             string channel = wanted
@@ -139,16 +150,28 @@ namespace Earshot.Voice
                 // lieferte aber exakt 0.0000 (signalBlocks=0), obwohl der native Tap
                 // Daten hatte (sourcePlaying=True = keine NoMoreData-Pause). Das Mute
                 // aus 'capture-hardmute-v2' war der Killer, nicht der Kanal-Pin.
-                // Die Direktausgabe bleibt stattdessen ueber den Feed stumm: Der Feed
-                // nullt den Puffer am Ende von OnAudioFilterRead (e46d900-Design,
-                // funktioniert im einzigen guten Lauf 20260918-0551).
+                // v10-Widerlegung (Log 20260918-1059): Die Feed-Nullung allein macht die
+                // Direktausgabe NICHT sicher stumm - der Callback bekam zwar Mikro-Daten
+                // und nullte sie, der hoerbare Output blieb trotzdem voll. v11 stellt die
+                // Stummschaltung daher ueber Feed-vor-Play + Stop+Play-Rewire sicher;
+                // F9 (mute) bleibt der Not-Killswitch, mute nullt die Filter-Daten.
                 tapSource.mute = false;
 
-                // Reihenfolge ist wichtig: Vivox speist zuerst die AudioSource,
-                // danach liest der Feed die Samples und nullt den direkten Mix.
-                captureTap = tapObject.AddComponent<VivoxCaptureSourceTap>();
+                // v11: Feed ZUERST hinzufuegen. OnAudioFilterRead-Filter muessen auf dem
+                // GameObject existieren, BEVOR VivoxAudioProcessor die AudioSource per
+                // Play() startet. Zur Laufzeit nachtraeglich hinzugefuegte Filter werden
+                // von Unity u.U. erst mit einem Neustart der Quelle in die hoerbare
+                // DSP-Kette eingehaengt. Leak-Beweis Log 20260918-1059 (v10): Der Feed
+                // bekam Mikro-Daten (signalBlocks=37) und nullte sie, der hoerbare Output
+                // blieb trotzdem voll - einzig F9 (mute) stummte ihn.
                 feed = tapObject.AddComponent<WalkieVivoxCaptureFeed>();
                 feed.Configure(SafeOutputSampleRate());
+                captureTap = tapObject.AddComponent<VivoxCaptureSourceTap>();
+
+                // v11: Zeitgesteuerte Stop+Play-Zyklen erzwingen die Neuverkabelung
+                // des Feed-Filters (siehe TryRewireTapFilter).
+                tapCreatedAt = Time.unscaledTime;
+                tapFilterRewireIndex = 0;
 
                 // WICHTIG: Tap permanent auf den Proximity-Kanal pinnen —
                 // Funkkanal-Pins liefern nachweislich keine native Daten
@@ -310,7 +333,52 @@ namespace Earshot.Voice
         }
 
         /// <summary>
-        /// v10-Diagnose gegen das Symptom "eigene Stimme ueberall gleich laut, kein 3D":
+        /// v11-Fix-Versuch gegen den Leak "eigene Stimme ueberall gleich laut":
+        /// Zeitgesteuerte Stop+Play-Zyklen der Tap-AudioSource nach der Erstellung.
+        /// Unity verkabelt zur Laufzeit hinzugefuegte OnAudioFilterRead-Filter
+        /// moeglicherweise erst beim (Neu-)Start einer AudioSource in die hoerbare
+        /// DSP-Kette. Der Feed nullte zwar nachweislich seine Filter-Daten
+        /// (signalBlocks>0 im selben Log 20260918-1059), aber der hoerbare Output
+        /// blieb voll - erst F9 (mute) stummte ihn. Stop+Play erzwingt die
+        /// Neuverkabelung; ist die Theorie richtig, ist die direkte Tap-Ausgabe
+        /// danach stumm, waehrend der Feed weiterhin Daten liefert.
+        /// Mehrere Versuchspunkte, weil die Vivox-Registrierung asynchron ist und
+        /// Play() erst nach deren Erfolg laeuft.
+        /// </summary>
+        private void TryRewireTapFilter()
+        {
+            if (tapSource == null || tapFilterRewireIndex >= RewireScheduleSeconds.Length)
+            {
+                return;
+            }
+
+            float age = Time.unscaledTime - tapCreatedAt;
+            if (age < RewireScheduleSeconds[tapFilterRewireIndex]) return;
+            tapFilterRewireIndex++;
+
+            // Noch nicht spielend? Dann laeuft die Vivox-Registrierung noch -
+            // der naechste Versuchspunkt prueft erneut.
+            if (!tapSource.isPlaying) return;
+
+            try
+            {
+                tapSource.Stop();
+                tapSource.Play();
+
+                VoiceSessionLog.Note(
+                    "WALKIE Tap-Source-Neustart (v11): Stop+Play erzwingt das Einhaengen " +
+                    "des Feed-Filters in die hoerbare DSP-Kette. War der Leak ein nicht " +
+                    "verkabelter Filter, ist die direkte Tap-Ausgabe JETZT stumm - " +
+                    "Sidetone-Daten fliessen weiterhin.");
+            }
+            catch (System.Exception ex)
+            {
+                VoiceSessionLog.Alert("WALKIE Tap-Source-Neustart fehlgeschlagen: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// v10/v11-Diagnose gegen das Symptom "eigene Stimme ueberall gleich laut, kein 3D":
         /// F9 schaltet die Tap-AudioSource hart stumm (mute=true). Mute nullt
         /// nachweislich die OnAudioFilterRead-Samples (Log 20260918-0735), ist also
         /// garantiert nicht hoerbar und stoppt gleichzeitig die Sidetone-Daten.
@@ -329,6 +397,35 @@ namespace Earshot.Voice
                       "Stimme trotzdem weiter, kommt sie NICHT aus dem Sidetone-Tap."
                     : "WALKIE DIAGNOSE F9: Tap Hard-Mute AUS - Normalzustand " +
                       "wiederhergestellt (Sidetone wieder aktiv).");
+            }
+
+            // v11: F10 testet Volume statt mute. Volume=0 duempft die Direktausgabe,
+            // haengt aber evtl. VOR dem Filter - dann ueberleben die Sidetone-Daten.
+            // Das FLOW-Log entscheidet: signalBlocks>0 bei volume=0 waere der Beweis,
+            // dass volume=0 ein valider Dauer-Fix ist (im Gegensatz zu mute).
+            if (Input.GetKeyDown(KeyCode.F10))
+            {
+                diagnosticVolumeZero = !diagnosticVolumeZero;
+                if (tapSource != null) tapSource.volume = diagnosticVolumeZero ? 0f : 1f;
+                VoiceSessionLog.Alert(diagnosticVolumeZero
+                    ? "WALKIE DIAGNOSE F10: Tap-Volume=0 (NICHT mute). Stimme trotzdem " +
+                      "hoerbar -> sie ist NICHT die Tap-Direktausgabe. Parallel zeigt das " +
+                      "FLOW-Log, ob die Sidetone-Daten bei volume=0 ueberleben " +
+                      "(signalBlocks>0 waehrend Sprechen = volume=0 ist ein valider Fix)."
+                    : "WALKIE DIAGNOSE F10: Tap-Volume zurueck auf 1 (Normalzustand).");
+            }
+
+            // v11: F11 kappt den Sidetone-Datenfluss zu den Walkie-Geraeten.
+            // Bleibt die Stimme hoerbar, kommt sie garantiert NICHT aus den
+            // Walkie-Lautsprechern (WalkieDeviceOutput).
+            if (Input.GetKeyDown(KeyCode.F11))
+            {
+                diagnosticSidetoneBlocked = !diagnosticSidetoneBlocked;
+                VoiceSessionLog.Alert(diagnosticSidetoneBlocked
+                    ? "WALKIE DIAGNOSE F11: Sidetone-Datenfluss BLOCKIERT - der Feed " +
+                      "liefert keine Samples mehr an die Walkie-Geraete. Stimme trotzdem " +
+                      "hoerbar -> sie kommt NICHT aus den Walkie-Lautsprechern."
+                    : "WALKIE DIAGNOSE F11: Sidetone-Datenfluss wieder freigegeben.");
             }
         }
 
@@ -356,12 +453,14 @@ namespace Earshot.Voice
                 string clipName = candidate.clip != null ? candidate.clip.name : "-";
                 string objectName = candidate.gameObject.name;
 
+                float outPeak = ReadSourceOutputPeak(candidate);
                 VoiceSessionLog.Note(
                     $"WALKIE AUDIO-INVENTAR: '{objectName}'" +
                     (isTap ? " [SIDETONE-TAP]" : "") +
                     $" clip='{clipName}' spatial={candidate.spatialBlend:0.00} " +
                     $"vol={candidate.volume:0.00} mute={candidate.mute} " +
-                    $"loop={candidate.loop} pos={candidate.transform.position:0.0}");
+                    $"loop={candidate.loop} outPeak={outPeak:0.000} " +
+                    $"pos={candidate.transform.position:0.0}");
 
                 if (!isTap &&
                     candidate.spatialBlend < 0.5f &&
@@ -388,6 +487,34 @@ namespace Earshot.Voice
             tapSource.mute = false;
             VoiceSessionLog.Alert(
                 "WALKIE Capture-Source war unerwartet gemutet (nullt OnAudioFilterRead) und wurde entsperrt.");
+        }
+
+        /// <summary>
+        /// v11: Tatsaechlicher Output-Pegel einer AudioSource (GetOutputData).
+        /// Zeigt im AUDIO-INVENTAR, welche Quelle wirklich Signal in den Mix gibt -
+        /// der entscheidende Beweis, wenn eine vermeintlich stummgefilterte Quelle
+        /// (wie der Sidetone-Tap) trotzdem hoerbar ist.
+        /// </summary>
+        private float ReadSourceOutputPeak(AudioSource source)
+        {
+            if (source == null) return -1f;
+            try
+            {
+                source.GetOutputData(inventoryPeakBuffer, 0);
+                float peak = 0f;
+                for (int i = 0; i < inventoryPeakBuffer.Length; i++)
+                {
+                    float absolute = inventoryPeakBuffer[i] < 0f
+                        ? -inventoryPeakBuffer[i]
+                        : inventoryPeakBuffer[i];
+                    if (absolute > peak) peak = absolute;
+                }
+                return peak;
+            }
+            catch
+            {
+                return -1f;
+            }
         }
 
         private float ReadDirectOutputPeak()
