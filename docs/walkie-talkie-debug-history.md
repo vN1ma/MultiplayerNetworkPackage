@@ -499,4 +499,35 @@ jedes WalkieDeviceOutput (3D, EQ, Delay, Distanz-Cutoff)
 
 ---
 
+## 14. v12 — Fix des Sidetone-Leaks: volume=0-Dauerstellung + Clip-Lese-Pfad statt OnAudioFilterRead (2026-09-18, ~13:30)
+
+**v11-Test-Ergebnis (Log `voice-20260918-131804-852-pid22360`):**
+
+- Unity-Neustart war unnötig: Package-Manager-Update reichte (Re-Resolve + Domain-Reload). Log zeigte `revision='leak-hunt-v11'`, packages-lock hash `f847aa2`.
+- Normalzustand: Stimme weiterhin überall gleich laut → **Rewire (Stop+Play) hat den Filter NICHT in die hörbare Kette verkabelt.** v11-Theorie widerlegt.
+- AUDIO-INVENTAR: Nur der [SIDETONE-TAP] hatte während des Sprechens `outPeak>0` (0.071–0.159); alle anderen Quellen (Ocean, Musik, WalkieOutput) 0.000 → Leak endgültig = Tap-Direktausgabe, jetzt auch per outPeak bewiesen.
+- **F10 (volume=0): Stimme komplett weg** → volume stummt die Direktausgabe. ABER: über das gesamte F10-Fenster `inputPeak=0.0000` und `signalBlocks=0` → **Unity nullt bei volume=0 die OnAudioFilterRead-Samples genauso wie bei mute.** volume=0 allein hätte also auch die Sidetone-Daten getötet.
+- F11 war nicht diskriminierend: Es schaltete den ganzen Feed stumm („Sidetone aus", callbacks-Reset 47→14) statt nur den Bus-Zufluss — Design-Schwäche des v11-Tests.
+- SDK-Code-Lektüre (`VivoxAudioTap.cs`/`VivoxAudioProcessor.cs`, com.unity.services.vivox 16.10.0) liefert den Schlüssel: Die Coroutine `ProcessAudio` (20-ms-Takt) zieht Mikro-Daten per **P/Invoke `DoAudioFilterRead` direkt aus Vivox-Native** in `m_internalBuffer` und schreibt sie per `SetData` in den 3-s-Ring-Buffer-Clip. Die AudioSource ist nur der Abspielmechanismus — **volume/mute betreffen nur Unitys Wiedergabe und die Filter-Samples, nicht den nativen Pull und nicht den Clip-Inhalt.**
+
+**v12-Fix (`WalkieSidetoneCapture.cs`, Revision `leak-hunt-v12`):**
+
+1. **`tapSource.volume = 0f` dauerhaft** bei Erstellung (F10-Beweis). `EnforceSilentDirectOutput()` stellt das jeden Frame sicher.
+2. **`WalkieVivoxCaptureFeed` ohne OnAudioFilterRead**: Main-Thread-Pull pro `Update()` liest per Reflektion `m_writePointer`/`m_streamClip` aus dem `VivoxAudioProcessor` und holt die frisch geschriebenen Frames per `clip.GetData` aus dem Ring-Buffer (read-only, keine Doppel-Pulls am nativen Tap). Feste 10-ms-Quanten (stabile Buffer-Allokation), Wrap/Seam-Handling, Resync bei Sprüngen > Clip/4 (Re-Init/Underrun-Bump), Cursor-Mitlauf bei inaktivem Sidetone.
+3. Gate/Downmix/Bus-Write unverändert; FLOW-Log zeigt jetzt `pulls`/`pulledFrames`/`clipPeak`.
+4. **F9** bleibt Hard-Mute-Killswitch — mit Nebeneffekt: Sidetone läuft jetzt sogar bei mute weiter (Clip-Pfad ist davon nicht betroffen).
+5. **F10** ist jetzt die Gegenprobe: LEGACY-LEAK-MODE volume=1 — die Stimme MUSS dann wieder überall gleich laut kommen.
+6. Entfallen: Rewire-Zyklen, Feed-vor-Tap-Anlage, `EnsureCapacity`.
+
+**Testprotokoll v12:**
+
+1. Earshot im Package-Manager aktualisieren (Neustart nicht nötig), Log muss `revision='leak-hunt-v12'` und `tapVolume=0.00` zeigen.
+2. Solo, PTT + sprechen, weit weg vom Walkie: Stimme muss **weg** sein; in Walkie-Nähe räumlicher Sidetone hörbar. FLOW: `pulls>0`, `pulledFrames` ~48000/s, `clipPeak>0` beim Sprechen.
+3. Gegenprobe F10: Stimme kehrt überall gleich laut zurück → beweist rückwirkend den Leak-Pfad. F10 wieder ausschalten.
+4. Danach: Two-Client-Test (Freeze + Radio) und Phase-4-„Hörtest"-Checkbox in `PROGRESS.md`.
+
+**Risiken/Annahmen:** Reflektion ist an com.unity.services.vivox 16.10.0 gebunden (Feldnamen `m_AudioProcessor`/`m_writePointer`/`m_streamClip`); bei einem Vivox-Upgrade bricht der Pfad mit einem einmaligen Alert („Reflektions-Zugriff ... fehlgeschlagen"), nicht still. `GetData` auf dem per `AudioClip.Create(..., stream:false)` erzeugten Clip ist erlaubt (das SDK nutzt auf demselben Clip selbst `SetData`).
+
+---
+
 *Dokument angelegt 2026-09-18. Bei jedem weiteren gescheiterten oder erfolgreichen Ansatz: hier einen kurzen Abschnitt ergänzen (Datum, Symptom, Hypothese, Fix, Log-Beweis, Ergebnis), nicht nur CHANGELOG-Zeilen.*

@@ -141,3 +141,8 @@ Kontext: Discord-How-to beschreibt für Produktion exakt dieses Muster: Voice-Ne
 Entscheidung/Fakt: Das `IProximityVoicePlayer`-Konzept aus Phase 1 entspricht dem von Discord für Produktion empfohlenen Ansatz (Player-Lifecycle gehört dem Multiplayer, die Voice-Schicht registriert nur Player). Kein Alternativ-Design nötig.
 Auswirkung: Bestätigt die Phase-1-Architektur in `docs/earshot-voice-plan.md`; kein Umbau des Plans daraus.
 
+## [2026-09-18] Walkie-Sidetone: dauerhaftes volume=0 + Reflektions-Clip-Lesung statt OnAudioFilterRead
+Kontext: Leak „eigene Stimme überall gleich laut" war die 2D-Direktausgabe der VivoxCaptureSourceTap-AudioSource. OnAudioFilterRead-Nullung erreicht den hörbaren Pfad nie (auch Stop+Play-Rewire nicht, Log 20260918-1318), und Unity nullt bei mute wie bei volume=0 die Filter-Samples — beide „stummen" Wege killen damit auch die Sidetone-Daten.
+Entscheidung/Fakt: VivoxAudioProcessor füllt den Ring-Buffer-Clip per nativem P/Invoke-Pull (`DoAudioFilterRead` in der 20-ms-Coroutine) unabhängig von volume/mute der AudioSource. Fix (leak-hunt-v12): Tap-Source dauerhaft auf volume=0 und Sidetone-Daten per Reflektion (`m_AudioProcessor` → `m_writePointer`/`m_streamClip`, Main-Thread, 10-ms-Quanten, read-only via `clip.GetData`) direkt aus dem Clip lesen.
+Auswirkung: `WalkieSidetoneCapture.cs` (v12): F10 = LEGACY-LEAK-Gegenprobe (volume=1), F9 = Hard-Mute-Killswitch (Sidetone läuft trotzdem weiter). Reflektion an com.unity.services.vivox 16.10.0 gebunden — bei Vivox-Upgrade Feldnamen prüfen (bricht mit einmaligem Alert, nicht still).
+

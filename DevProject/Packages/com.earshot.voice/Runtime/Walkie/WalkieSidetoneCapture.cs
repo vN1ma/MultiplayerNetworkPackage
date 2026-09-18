@@ -10,11 +10,7 @@ namespace Earshot.Voice
     [AddComponentMenu("")]
     internal sealed class WalkieSidetoneCapture : MonoBehaviour
     {
-        private const string DiagnosticRevision = "leak-hunt-v11";
-
-        // v11: Zeitpunkte (Sekunden nach Tap-Erstellung), zu denen ein Stop+Play-
-        // Zyklus die Filter-Neuverkabelung erzwingt (siehe TryRewireTapFilter).
-        private static readonly float[] RewireScheduleSeconds = { 1f, 3f, 7f };
+        private const string DiagnosticRevision = "leak-hunt-v12";
 
         private VivoxCaptureSourceTap captureTap;
         private WalkieVivoxCaptureFeed feed;
@@ -26,10 +22,8 @@ namespace Earshot.Voice
         private float nextFlowDiagnostic;
         private bool deviceInventoryLogged;
         private bool diagnosticHardMute;
-        private bool diagnosticVolumeZero;
+        private bool diagnosticLegacyVolume;
         private bool diagnosticSidetoneBlocked;
-        private float tapCreatedAt;
-        private int tapFilterRewireIndex;
         private readonly float[] inventoryPeakBuffer = new float[256];
         private float nextInventoryLog;
         private bool lastWanted;
@@ -58,9 +52,8 @@ namespace Earshot.Voice
             WalkieTalkieRegistry.EnsureLocalTransmitStillValid();
             EnsureCaptureTap();
             TryPinTapToActiveChannel();
-            EnforceDirectOutputUnmuted();
+            EnforceSilentDirectOutput();
             HandleDiagnosticHotkeys();
-            TryRewireTapFilter();
 
             bool ready = captureTap != null && captureTap.TapId >= 0 && feed != null;
             bool wanted = ready &&
@@ -103,7 +96,7 @@ namespace Earshot.Voice
             if (wanted && Time.unscaledTime >= nextFlowDiagnostic)
             {
                 nextFlowDiagnostic = Time.unscaledTime + 1f;
-                feed.ConsumeDiagnostics(out int callbacks, out int signalBlocks, out float peak);
+                feed.ConsumeDiagnostics(out int pulls, out int pulledFrames, out int signalBlocks, out float peak);
                 float directOutputPeak = ReadDirectOutputPeak();
                 RefreshTxChannelSnapshot();
                 bool tapInTx = ContainsChannel(txChannelSnapshot, captureTap.ChannelName);
@@ -111,8 +104,8 @@ namespace Earshot.Voice
                     $"WALKIE CAPTURE FLOW: TapId={captureTap.TapId}, " +
                     $"tapChannel='{captureTap.ChannelName}', autoAcquire={captureTap.AutoAcquireChannel}, " +
                     $"txChannels=[{string.Join(" | ", txChannelSnapshot)}], tapInTx={tapInTx}, " +
-                    $"callbacks={callbacks}, " +
-                    $"signalBlocks={signalBlocks}, inputPeak={peak:0.0000}, " +
+                    $"pulls={pulls}, pulledFrames={pulledFrames}, " +
+                    $"signalBlocks={signalBlocks}, clipPeak={peak:0.0000}, " +
                     $"directOutputPeak={directOutputPeak:0.000000}, sourcePlaying={tapSource.isPlaying}, " +
                     $"sourceMute={tapSource.mute}, sourceVolume={tapSource.volume:0.000}, " +
                     $"channel='{channel}', revision='{DiagnosticRevision}'");
@@ -144,34 +137,20 @@ namespace Earshot.Voice
                 tapSource.loop = false;
                 tapSource.spatialBlend = 0f;
                 tapSource.dopplerLevel = 0f;
-                tapSource.volume = 1f;
-                // v7 (Log 20260918-0735): AudioSource.mute NULLED die Samples, die
-                // OnAudioFilterRead erreichen — der Callback lief weiter (callbacks>0),
-                // lieferte aber exakt 0.0000 (signalBlocks=0), obwohl der native Tap
-                // Daten hatte (sourcePlaying=True = keine NoMoreData-Pause). Das Mute
-                // aus 'capture-hardmute-v2' war der Killer, nicht der Kanal-Pin.
-                // v10-Widerlegung (Log 20260918-1059): Die Feed-Nullung allein macht die
-                // Direktausgabe NICHT sicher stumm - der Callback bekam zwar Mikro-Daten
-                // und nullte sie, der hoerbare Output blieb trotzdem voll. v11 stellt die
-                // Stummschaltung daher ueber Feed-vor-Play + Stop+Play-Rewire sicher;
-                // F9 (mute) bleibt der Not-Killswitch, mute nullt die Filter-Daten.
+                // v12 (Beweis Log 20260918-1318, F10-Test): volume=0 stummt die 2D-
+                // Direktausgabe des Tap-Clips komplett. Der SDK-Coroutine-Pull
+                // (VivoxAudioProcessor.ProcessAudio -> DoAudioFilterRead per P/Invoke)
+                // fuellt den Ring-Buffer-Clip davon unberuehrt weiter - er laeuft
+                // unabhaengig von volume/mute der AudioSource. Seit v12 liest der Feed
+                // die Daten per Reflektion direkt aus dem Clip (ConfigurePull);
+                // volume=0 ist daher Dauer-Fix, kein Diagnose-Zustand. F10 stellt den
+                // Legacy-Zustand volume=1 (hoerbarer Leak) testweise wieder her.
+                tapSource.volume = 0f;
                 tapSource.mute = false;
 
-                // v11: Feed ZUERST hinzufuegen. OnAudioFilterRead-Filter muessen auf dem
-                // GameObject existieren, BEVOR VivoxAudioProcessor die AudioSource per
-                // Play() startet. Zur Laufzeit nachtraeglich hinzugefuegte Filter werden
-                // von Unity u.U. erst mit einem Neustart der Quelle in die hoerbare
-                // DSP-Kette eingehaengt. Leak-Beweis Log 20260918-1059 (v10): Der Feed
-                // bekam Mikro-Daten (signalBlocks=37) und nullte sie, der hoerbare Output
-                // blieb trotzdem voll - einzig F9 (mute) stummte ihn.
                 feed = tapObject.AddComponent<WalkieVivoxCaptureFeed>();
-                feed.Configure(SafeOutputSampleRate());
                 captureTap = tapObject.AddComponent<VivoxCaptureSourceTap>();
-
-                // v11: Zeitgesteuerte Stop+Play-Zyklen erzwingen die Neuverkabelung
-                // des Feed-Filters (siehe TryRewireTapFilter).
-                tapCreatedAt = Time.unscaledTime;
-                tapFilterRewireIndex = 0;
+                feed.ConfigurePull(captureTap, tapSource, SafeOutputSampleRate());
 
                 // WICHTIG: Tap permanent auf den Proximity-Kanal pinnen —
                 // Funkkanal-Pins liefern nachweislich keine native Daten
@@ -182,6 +161,7 @@ namespace Earshot.Voice
                     $"WALKIE Vivox-Capture-Tap erstellt: TapId={captureTap.TapId}, " +
                     $"channel='{captureTap.ChannelName}', autoAcquire={captureTap.AutoAcquireChannel}, " +
                     $"input='{EarshotVoice.ActiveInputDeviceName}', hardMute={tapSource.mute}, " +
+                    $"tapVolume={tapSource.volume:0.00}, " +
                     $"revision='{DiagnosticRevision}'");
                 LogAudioDeviceInventory();
             }
@@ -332,58 +312,16 @@ namespace Earshot.Voice
             }
         }
 
-        /// <summary>
-        /// v11-Fix-Versuch gegen den Leak "eigene Stimme ueberall gleich laut":
-        /// Zeitgesteuerte Stop+Play-Zyklen der Tap-AudioSource nach der Erstellung.
-        /// Unity verkabelt zur Laufzeit hinzugefuegte OnAudioFilterRead-Filter
-        /// moeglicherweise erst beim (Neu-)Start einer AudioSource in die hoerbare
-        /// DSP-Kette. Der Feed nullte zwar nachweislich seine Filter-Daten
-        /// (signalBlocks>0 im selben Log 20260918-1059), aber der hoerbare Output
-        /// blieb voll - erst F9 (mute) stummte ihn. Stop+Play erzwingt die
-        /// Neuverkabelung; ist die Theorie richtig, ist die direkte Tap-Ausgabe
-        /// danach stumm, waehrend der Feed weiterhin Daten liefert.
-        /// Mehrere Versuchspunkte, weil die Vivox-Registrierung asynchron ist und
-        /// Play() erst nach deren Erfolg laeuft.
-        /// </summary>
-        private void TryRewireTapFilter()
-        {
-            if (tapSource == null || tapFilterRewireIndex >= RewireScheduleSeconds.Length)
-            {
-                return;
-            }
 
-            float age = Time.unscaledTime - tapCreatedAt;
-            if (age < RewireScheduleSeconds[tapFilterRewireIndex]) return;
-            tapFilterRewireIndex++;
-
-            // Noch nicht spielend? Dann laeuft die Vivox-Registrierung noch -
-            // der naechste Versuchspunkt prueft erneut.
-            if (!tapSource.isPlaying) return;
-
-            try
-            {
-                tapSource.Stop();
-                tapSource.Play();
-
-                VoiceSessionLog.Note(
-                    "WALKIE Tap-Source-Neustart (v11): Stop+Play erzwingt das Einhaengen " +
-                    "des Feed-Filters in die hoerbare DSP-Kette. War der Leak ein nicht " +
-                    "verkabelter Filter, ist die direkte Tap-Ausgabe JETZT stumm - " +
-                    "Sidetone-Daten fliessen weiterhin.");
-            }
-            catch (System.Exception ex)
-            {
-                VoiceSessionLog.Alert("WALKIE Tap-Source-Neustart fehlgeschlagen: " + ex.Message);
-            }
-        }
 
         /// <summary>
-        /// v10/v11-Diagnose gegen das Symptom "eigene Stimme ueberall gleich laut, kein 3D":
-        /// F9 schaltet die Tap-AudioSource hart stumm (mute=true). Mute nullt
-        /// nachweislich die OnAudioFilterRead-Samples (Log 20260918-0735), ist also
-        /// garantiert nicht hoerbar und stoppt gleichzeitig die Sidetone-Daten.
-        /// Hoert man die eigene Stimme trotz F9 weiter, kommt sie NICHT aus dem
-        /// Sidetone-Tap — dann ist der Leak woanders (Vivox-nativ, OS, zweiter Pfad).
+        /// Diagnose-Hotkeys gegen das Symptom "eigene Stimme ueberall gleich laut":
+        /// v12: Default ist volume=0 (Dauer-Fix, Beweis F10-Test Log 20260918-1318).
+        /// F9 = zusaetzlicher Hard-Mute (Not-Killswitch; stummt nur die Direktausgabe,
+        /// der Sidetone laeuft seit v12 ueber den Clip-Lese-Pfad weiter).
+        /// F10 = Legacy-Modus volume=1: Direktausgabe wieder hoerbar (Gegenprobe,
+        /// dass der Leak wirklich die Tap-Direktausgabe war).
+        /// F11 = Sidetone-Datenfluss zu den Walkie-Geraeten kappen.
         /// </summary>
         private void HandleDiagnosticHotkeys()
         {
@@ -392,27 +330,28 @@ namespace Earshot.Voice
                 diagnosticHardMute = !diagnosticHardMute;
                 if (tapSource != null) tapSource.mute = diagnosticHardMute;
                 VoiceSessionLog.Alert(diagnosticHardMute
-                    ? "WALKIE DIAGNOSE F9: Tap HARD-MUTE AN. Sidetone UND direkte " +
-                      "Tap-Ausgabe sind jetzt garantiert stumm. Hoerst du deine " +
-                      "Stimme trotzdem weiter, kommt sie NICHT aus dem Sidetone-Tap."
-                    : "WALKIE DIAGNOSE F9: Tap Hard-Mute AUS - Normalzustand " +
-                      "wiederhergestellt (Sidetone wieder aktiv).");
+                    ? "WALKIE DIAGNOSE F9: Tap HARD-MUTE AN (Not-Killswitch). Die " +
+                      "direkte Tap-Ausgabe ist stumm; der Sidetone laeuft ueber den " +
+                      "Clip-Lese-Pfad (v12) weiter. Stimme trotzdem hoerbar -> " +
+                      "sie kommt NICHT aus dem Sidetone-Tap."
+                    : "WALKIE DIAGNOSE F9: Tap Hard-Mute AUS.");
             }
 
-            // v11: F10 testet Volume statt mute. Volume=0 duempft die Direktausgabe,
-            // haengt aber evtl. VOR dem Filter - dann ueberleben die Sidetone-Daten.
-            // Das FLOW-Log entscheidet: signalBlocks>0 bei volume=0 waere der Beweis,
-            // dass volume=0 ein valider Dauer-Fix ist (im Gegensatz zu mute).
+            // v12: F10 stellt die LEGACY-Direktausgabe (volume=1) testweise wieder an.
+            // Im Normalzustand (volume=0) MUSS die eigene Stimme nirgendwo direkt
+            // hoerbar sein - nur raeumlich an den Walkie-Geraeten. Mit F10 muss der
+            // Leak 'ueberall gleich laut' zurueckkehren: der Gegenbeweis.
             if (Input.GetKeyDown(KeyCode.F10))
             {
-                diagnosticVolumeZero = !diagnosticVolumeZero;
-                if (tapSource != null) tapSource.volume = diagnosticVolumeZero ? 0f : 1f;
-                VoiceSessionLog.Alert(diagnosticVolumeZero
-                    ? "WALKIE DIAGNOSE F10: Tap-Volume=0 (NICHT mute). Stimme trotzdem " +
-                      "hoerbar -> sie ist NICHT die Tap-Direktausgabe. Parallel zeigt das " +
-                      "FLOW-Log, ob die Sidetone-Daten bei volume=0 ueberleben " +
-                      "(signalBlocks>0 waehrend Sprechen = volume=0 ist ein valider Fix)."
-                    : "WALKIE DIAGNOSE F10: Tap-Volume zurueck auf 1 (Normalzustand).");
+                diagnosticLegacyVolume = !diagnosticLegacyVolume;
+                if (tapSource != null) tapSource.volume = diagnosticLegacyVolume ? 1f : 0f;
+                VoiceSessionLog.Alert(diagnosticLegacyVolume
+                    ? "WALKIE DIAGNOSE F10: Tap-Volume=1 (LEGACY-LEAK-MODE). Die eigene " +
+                      "Stimme sollte JETZT wieder ueberall gleich laut zu hoeren sein - " +
+                      "Gegenbeweis, dass der Leak die Tap-Direktausgabe war. Der " +
+                      "Sidetone laeuft ueber den Clip-Lese-Pfad weiter."
+                    : "WALKIE DIAGNOSE F10: Tap-Volume zurueck auf 0 (v12-Fix, " +
+                      "Direktausgabe stumm).");
             }
 
             // v11: F11 kappt den Sidetone-Datenfluss zu den Walkie-Geraeten.
@@ -475,18 +414,31 @@ namespace Earshot.Voice
             }
         }
 
-        private void EnforceDirectOutputUnmuted()
+        /// <summary>
+        /// v12: Die Tap-AudioSource bleibt dauerhaft auf volume=0 - die 2D-
+        /// Direktausgabe ist damit garantiert stumm (Beweis F10-Test Log
+        /// 20260918-1318), waehrend der Feed die Sidetone-Daten per Reflektion
+        /// aus dem Ring-Buffer-Clip liest. F9 (Hard-Mute) und F10 (Legacy-
+        /// Volume=1) duerfen den Zustand bewusst ueberschreiben.
+        /// </summary>
+        private void EnforceSilentDirectOutput()
         {
-            // v7: Die Source darf NICHT gemutet sein — AudioSource.mute nullt die
-            // Samples in OnAudioFilterRead (siehe Kommentar in EnsureCaptureTap).
-            // Stumme Direktausgabe garantiert der Feed selbst (Array.Clear).
-            // v10: F9-Diagnose-Mute darf nicht automatisch entfernt werden.
-            if (diagnosticHardMute) return;
-            if (tapSource == null || !tapSource.mute) return;
+            if (tapSource == null) return;
 
-            tapSource.mute = false;
-            VoiceSessionLog.Alert(
-                "WALKIE Capture-Source war unerwartet gemutet (nullt OnAudioFilterRead) und wurde entsperrt.");
+            if (!diagnosticHardMute && tapSource.mute)
+            {
+                tapSource.mute = false;
+                VoiceSessionLog.Alert(
+                    "WALKIE Capture-Source war unerwartet gemutet und wurde entsperrt.");
+            }
+
+            if (!diagnosticLegacyVolume && tapSource.volume > 0.0001f)
+            {
+                tapSource.volume = 0f;
+                VoiceSessionLog.Alert(
+                    "WALKIE Capture-Source-Volume war unerwartet >0 (Leak-Pfad) und " +
+                    "wurde auf 0 zurueckgesetzt (v12-Fix).");
+            }
         }
 
         /// <summary>
@@ -568,8 +520,14 @@ namespace Earshot.Voice
     }
 
     /// <summary>
-    /// Audio-Thread-Feed hinter dem VivoxCaptureSourceTap. Das Tap-Signal wird nur
-    /// in den Walkie-Bus geschrieben und danach aus dem direkten Unity-Mix entfernt.
+    /// v12: Holt das Vivox-Capture-Signal per Reflektion direkt aus dem Ring-
+    /// Buffer-Clip des VivoxAudioProcessor (m_streamClip + m_writePointer) und
+    /// schreibt es in den Walkie-Bus. Die Tap-AudioSource bleibt dauerhaft auf
+    /// volume=0 (Beweis Log 20260918-1318): Der SDK-Coroutine-Pull fuellt den
+    /// Clip unabhaengig von volume/mute, Unity nullt aber bei beidem die
+    /// OnAudioFilterRead-Samples - deshalb faellt OnAudioFilterRead weg und die
+    /// Daten werden im Main-Thread aus dem Clip gelesen (read-only, keine
+    /// Doppel-Pulls am nativen Tap).
     /// </summary>
     [AddComponentMenu("")]
     internal sealed class WalkieVivoxCaptureFeed : MonoBehaviour
@@ -581,20 +539,129 @@ namespace Earshot.Voice
         private const float GainReleasePerSecond = 6f;
         private const float SidetoneGain = 0.55f;
 
+        // VivoxAudioProcessor-Interna (Reflektion; Paket com.unity.services.vivox
+        // ist auf 16.10.0 gepinnt - Feldnamen aus VivoxAudioProcessor.cs).
+        private static System.Reflection.FieldInfo audioProcessorField;
+        private static System.Reflection.FieldInfo writePointerField;
+        private static System.Reflection.FieldInfo streamClipField;
+        private static bool reflectionResolved;
+
+        private AudioSource tapSource;
+        private object audioProcessor;
+        private AudioClip pullClip;
+        private int clipTotalFrames;
+        private int clipChannels = 1;
+        private int lastWritePointer = -1;
+        private int pullQuantumFrames = 480;
+        private bool pullBrokenReported;
+
         private float[] monoBuffer = new float[4096];
+        private float[] segmentBuffer = new float[2048];
         private volatile bool captureActive;
         private volatile string captureChannel;
         private int sampleRate = 48000;
         private float envelope;
         private float aboveThresholdSeconds;
         private float gain;
-        private int diagnosticCallbacks;
+        private int diagnosticPulls;
+        private int diagnosticFrames;
         private int diagnosticSignalBlocks;
         private volatile float diagnosticPeak;
 
-        internal void Configure(int outputSampleRate)
+        internal void ConfigurePull(VivoxAudioTap tap, AudioSource source, int outputSampleRate)
         {
+            tapSource = source;
             if (outputSampleRate > 0) sampleRate = outputSampleRate;
+            pullQuantumFrames = System.Math.Max(1, sampleRate / 100); // 10 ms
+            ResolveReflection();
+
+            try
+            {
+                audioProcessor = tap != null ? audioProcessorField?.GetValue(tap) : null;
+            }
+            catch
+            {
+                audioProcessor = null;
+            }
+
+            RefreshClip();
+        }
+
+        private static void ResolveReflection()
+        {
+            if (reflectionResolved) return;
+            reflectionResolved = true;
+
+            try
+            {
+                var flags = System.Reflection.BindingFlags.NonPublic |
+                            System.Reflection.BindingFlags.Instance;
+                audioProcessorField = typeof(VivoxAudioTap).GetField("m_AudioProcessor", flags);
+                var processorType = audioProcessorField != null
+                    ? audioProcessorField.FieldType
+                    : null;
+                writePointerField = processorType?.GetField("m_writePointer", flags);
+                streamClipField = processorType?.GetField("m_streamClip", flags);
+            }
+            catch
+            {
+                // Felder bleiben null -> ReportPullBroken() meldet den Ausfall.
+            }
+        }
+
+        private void RefreshClip()
+        {
+            AudioClip clip = null;
+            try
+            {
+                clip = audioProcessor != null
+                    ? streamClipField?.GetValue(audioProcessor) as AudioClip
+                    : null;
+            }
+            catch
+            {
+                clip = null;
+            }
+
+            if (clip == null && tapSource != null) clip = tapSource.clip;
+
+            pullClip = clip;
+            if (clip == null)
+            {
+                lastWritePointer = -1;
+                return;
+            }
+
+            clipTotalFrames = clip.samples;
+            clipChannels = clip.channels > 0 ? clip.channels : 1;
+            lastWritePointer = ReadWritePointer();
+        }
+
+        private int ReadWritePointer()
+        {
+            try
+            {
+                if (audioProcessor != null && writePointerField != null)
+                {
+                    return (int)writePointerField.GetValue(audioProcessor);
+                }
+            }
+            catch
+            {
+                // Fallthrough.
+            }
+
+            return -1;
+        }
+
+        private void ReportPullBroken()
+        {
+            if (pullBrokenReported) return;
+            pullBrokenReported = true;
+            VoiceSessionLog.Alert(
+                "WALKIE Sidetone-Feed: Reflektions-Zugriff auf VivoxAudioProcessor " +
+                "(m_writePointer/m_streamClip) fehlgeschlagen - Sidetone-Datenfluss " +
+                "liegt still. Vivox-Paket-Version pruefen (erwartet 16.10.0).");
         }
 
         internal void SetCaptureState(bool active, string channel)
@@ -612,9 +679,10 @@ namespace Earshot.Voice
             }
         }
 
-        internal void ConsumeDiagnostics(out int callbacks, out int signalBlocks, out float peak)
+        internal void ConsumeDiagnostics(out int pulls, out int frames, out int signalBlocks, out float peak)
         {
-            callbacks = System.Threading.Interlocked.Exchange(ref diagnosticCallbacks, 0);
+            pulls = System.Threading.Interlocked.Exchange(ref diagnosticPulls, 0);
+            frames = System.Threading.Interlocked.Exchange(ref diagnosticFrames, 0);
             signalBlocks = System.Threading.Interlocked.Exchange(ref diagnosticSignalBlocks, 0);
             peak = diagnosticPeak;
             diagnosticPeak = 0f;
@@ -625,28 +693,86 @@ namespace Earshot.Voice
             SetCaptureState(false, null);
         }
 
-        private void OnAudioFilterRead(float[] data, int channels)
+        private void Update()
         {
-            if (data == null || data.Length == 0) return;
-
-            int channelCount = channels > 0 ? channels : 1;
-            int frames = data.Length / channelCount;
-            if (frames > 0 && captureActive && !string.IsNullOrEmpty(captureChannel))
+            if (tapSource == null) return;
+            if (pullClip == null || tapSource.clip != pullClip)
             {
-                System.Threading.Interlocked.Increment(ref diagnosticCallbacks);
-                EnsureCapacity(frames);
-                Downmix(data, channelCount, frames);
-                ApplySustainGateAndGain(frames);
-                WalkieRadioBus.Write(
-                    captureChannel,
-                    WalkieRadioBus.LocalSidetoneStreamId,
-                    monoBuffer,
-                    0,
-                    frames);
+                RefreshClip();
+            }
+            if (pullClip == null || lastWritePointer < 0) return;
+
+            int write = ReadWritePointer();
+            if (write < 0)
+            {
+                ReportPullBroken();
+                return;
             }
 
-            // Niemals direkt abspielen: hoerbar nur ueber WalkieDeviceOutput.
-            System.Array.Clear(data, 0, data.Length);
+            int total = clipTotalFrames;
+            if (total <= 0) return;
+
+            int delta = (write - lastWritePointer + total) % total;
+            if (delta == 0) return;
+            if (delta > total / 4)
+            {
+                // Sprung (Re-Initialisierung/Underrun-Bump): neu synchronisieren -
+                // die uebersprungene Region ist vom SDK vorsilenced worden.
+                lastWritePointer = write;
+                return;
+            }
+
+            if (!captureActive || string.IsNullOrEmpty(captureChannel))
+            {
+                // Cursor trotzdem mitziehen, damit beim Aktivieren keine alten
+                // Samples in den Bus laufen.
+                lastWritePointer = write;
+                return;
+            }
+
+            // Feste Pull-Quanten (10 ms) halten die GetData-Buffergroesse stabil
+            // (keine pro-Frame-Allokationen); ein Rest unter einer Quante wartet
+            // auf den naechsten Frame. Nur der Seam-Chunk am Clip-Ende ist mal
+            // kleiner - eine Allokation pro ~3 s ist vernachlaessigbar.
+            int cursor = lastWritePointer;
+            int remaining = delta;
+            while (remaining >= pullQuantumFrames)
+            {
+                int chunk = System.Math.Min(pullQuantumFrames, total - cursor);
+                ProcessSegment(cursor, chunk);
+                cursor = (cursor + chunk) % total;
+                remaining -= chunk;
+            }
+
+            lastWritePointer = cursor;
+        }
+
+        private void ProcessSegment(int offset, int frames)
+        {
+            int samples = frames * clipChannels;
+            if (segmentBuffer.Length != samples) segmentBuffer = new float[samples];
+
+            try
+            {
+                pullClip.GetData(segmentBuffer, offset);
+            }
+            catch
+            {
+                return;
+            }
+
+            if (monoBuffer.Length < frames) monoBuffer = new float[frames];
+            Downmix(segmentBuffer, clipChannels, frames);
+
+            System.Threading.Interlocked.Increment(ref diagnosticPulls);
+            System.Threading.Interlocked.Add(ref diagnosticFrames, frames);
+            ApplySustainGateAndGain(frames);
+            WalkieRadioBus.Write(
+                captureChannel,
+                WalkieRadioBus.LocalSidetoneStreamId,
+                monoBuffer,
+                0,
+                frames);
         }
 
         private void Downmix(float[] data, int channels, int frames)
@@ -718,11 +844,6 @@ namespace Earshot.Voice
             envelope = 0f;
             aboveThresholdSeconds = 0f;
             gain = 0f;
-        }
-
-        private void EnsureCapacity(int frames)
-        {
-            if (monoBuffer.Length < frames) monoBuffer = new float[frames];
         }
     }
 }
