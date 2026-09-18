@@ -14,8 +14,8 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 - `Radio Crunch`-Regler an `EarshotWalkieTalkie`: bewusster Alter-Funk-Charakter
   (Sample-and-Hold + Bit-Reduktion + leichte Verzerrung), damit Walkie-Stimme sich
   hoerbar von Mund-Stimme unterscheidet
-- Mikrofon-Vorwaermen (`WalkieSidetoneCapture.Prewarm`) beim Verbindungsaufbau, um den
-  bekannten `Microphone.Start`-Ruckler nicht erst beim ersten echten PTT-Druck zu zahlen
+- `VivoxCaptureSourceTap` als lokale Sidetone-Quelle: verwendet Vivox' bereits geoeffnetes
+  Eingabegeraet, ohne einen zweiten `Microphone.Start`-Pfad
 - Nahfeld-Lautstaerke-Deckel (`MinPerceivedDistance`) in `WalkieDeviceOutput` gegen
   akustische Rueckkopplung, wenn ein Geraet sehr nah am Ohr sitzt
 - Sidetone-Selbstschutz (`MinSidetoneSelfDistance`): ein Geraet direkt an der eigenen
@@ -26,7 +26,7 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 - Persistente Walkie-Diagnose im `EarshotLogs`-Sitzungslog: Ausgabegeraet, Modus/Stream,
   Listener- und Lautsprecherposition, Entfernung/Falloff, Ziel-/Ist-Lautstaerke,
   Filterwerte, aktive Listener, PTT-Sync-Revision/-Dauer, Tap-Recovery-Dauer und
-  Mikrofon-Start/-Stop. Falls der Projektordner nicht beschreibbar ist, wird
+  Vivox-Capture-Tap-Status. Falls der Projektordner nicht beschreibbar ist, wird
   `Application.persistentDataPath/EarshotLogs` verwendet.
 
 - Phase 4 Walkie-Talkie: `EarshotWalkieTalkie`, Vivox-Funkkanal (`earshot.radio.*`),
@@ -68,16 +68,16 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   Vivox-Syncs eintreffen; ein Dirty-Durchlauf uebernimmt immer den neuesten Zustand.
 - Sidetone-Distanz nutzt vorrangig den tatsaechlich aktiven AudioListener und hat an
   `MaxHearingDistance` einen expliziten harten Cutoff.
-- Sidetone klang roboterhaft/zu schnell: Mikrofon wurde fest mit 16 kHz aufgenommen,
-  aber mit der Ausgabe-Rate (meist 48 kHz) abgespielt — jetzt nimmt `WalkieSidetoneCapture`
-  mit `AudioSettings.outputSampleRate` auf, kein Pitch-Fehler mehr
+- Sidetone klang roboterhaft/zu schnell und konnte mit virtuellen Geraeten lokales
+  Monitoring ausloesen. Der lokale Funkton kommt jetzt direkt aus Vivox'
+  `VivoxCaptureSourceTap`; kein zweites Unity-Mikrofon und keine abweichende Capture-Rate.
 - Periodisches Klacken am Empfangs-Walkie: `WalkieDeviceOutput` brach die Wiedergabe fruerher
   ab, wenn der Puffer kurz leer war (Gate zu) — Delay-Ring laeuft jetzt immer durch
   (Stille wird eingemischt statt die Wiedergabe abzubrechen)
 - Lautstaerke stieg beim Weggehen vom Walkie faelschlich an (Anti-Feedback-Nahdaempfung
   wirkte gegenteilig) — jetzt einfache monotone Distanzdaempfung: naeher = lauter, weiter = leiser
-- Bus/Ring vereinheitlicht auf Mono-Frames (`WalkieRadioTapFeed` mischt Vivox-Tap runter,
-  `WalkieSidetoneCapture` mischt Mehrkanal-Mikrofon runter) statt Rohdaten unabhaengig
+- Bus/Ring vereinheitlicht auf Mono-Frames (`WalkieRadioTapFeed` und
+  `WalkieVivoxCaptureFeed` mischen ihre Vivox-Taps runter) statt Rohdaten unabhaengig
   von Kanalzahl weiterzureichen
 - Sidetone-Gate ist jetzt ein weich nachziehender Gain mit Sustain-Schwelle (~90 ms), damit
   kurze Transienten wie Schritt-Klicks seltener durchrutschen, statt hart an/aus zu schalten

@@ -191,8 +191,8 @@ namespace Earshot.Voice
         /// Wird eine Walkie-Instanz eines FREMDEN Spielers faelschlich als "owned" behandelt
         /// (z.B. weil ein NetworkVariable-Callback <see cref="SetTransmitting"/> auf ALLEN
         /// Clients statt nur beim Besitzer aufruft), denkt dieser Client faelschlich, ER sende:
-        /// eigenes Mikrofon startet (Freeze durch <c>Microphone.Start</c>), Sidetone spielt
-        /// Phantom-Ton ab. Deshalb: PTT/CanTransmit nur ueber die lokal-besessene Instanz steuern.
+        /// Vivox-Capture-Sidetone spielt Phantom-Ton ab und der Funkmodus wechselt lokal.
+        /// Deshalb: PTT/CanTransmit nur ueber die lokal-besessene Instanz steuern.
         /// </para>
         /// </summary>
         public void SetLocalOwnership(bool isLocal)

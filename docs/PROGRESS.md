@@ -116,7 +116,8 @@ Ziel: Funkgeräte als **optionale** Welt-Objekte — die Stimme läuft über ein
 - [x] Sender-Dämpfung: Mund-Stimme des Senders leiser, solange Radio-Audio von ihm ankommt
 - [x] Tests: EditMode-Tests für Kanal-Zuordnung, Half-Duplex und „Funk ersetzt Mund"-Skala (`WalkieRulesTests`)
 - [x] Zwei-Client-Stabilisierung: Tap-Recovery pro Empfangspfad, verlustfreier PTT-Sync und harter Sidetone-Reichweiten-Cutoff
-- [x] Persistente Zwei-Client-Diagnose: pro Gerät Distanz/Falloff/Filter/Stream sowie PTT-Sync-, Tap-Recovery- und Mikrofon-Zeiten in `EarshotLogs`
+- [x] Persistente Zwei-Client-Diagnose: pro Gerät Distanz/Falloff/Filter/Stream sowie PTT-Sync-, Tap-Recovery- und Capture-Tap-Status in `EarshotLogs`
+- [x] Sidetone ohne zweites Mikrofon: lokales Signal über Vivox `VivoxCaptureSourceTap`, direkte Tap-Ausgabe bleibt stumm
 - [ ] Hörtest: zwei Walkies in der Testszene / im Spiel, alle Verhaltensregeln einzeln verifiziert
 - [ ] Bewusst nicht in V1: Squelch-Knacksen, Reichweitenlimit/Batterie, dominanter Pfad mit weicher Überblendung
 

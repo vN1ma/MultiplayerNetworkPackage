@@ -10,6 +10,11 @@ Auswirkung: welches Arbeitspaket/welche Datei betroffen ist
 ```
 
 
+## [2026-09-18] Sidetone nutzt Vivox Capture Source Tap
+Kontext: Unity-Diagnoselog zeigte bei null Walkie-Ausgang weiterhin lokales Monitoring, sobald `Microphone.Start` das virtuelle Parsec-Eingabegeraet oeffnete; Vivox dokumentiert `VivoxCaptureSourceTap` fuer das lokale Capture-Signal.
+Entscheidung/Fakt: Sidetone verwendet den bereits von Vivox geoeffneten Capture-Stream und oeffnet nie ein zweites Unity-Mikrofon. Das Tap wird selbst aus dem finalen Mix genullt; hoerbar bleibt es nur ueber raeumliche `WalkieDeviceOutput`s.
+Auswirkung: `WalkieSidetoneCapture`; verhindert Treiber-/Virtual-Device-Monitoring, Geraetekonflikte und PTT-Start-Hitches ohne die Weltgeraete-Ausgabe zu entfernen.
+
 ## [2026-09-18] Tap-Recovery ist pfadbezogen
 Kontext: Zwei-Client-Walkie-Logs zeigten im Sechs-Sekunden-Takt gleichzeitige Neuaufbauten von Proximity- und Funk-Tap sowie Empfangsruckler.
 Entscheidung/Fakt: Bei Vivox `TransmissionMode.Single` ist einer der beiden Pfade absichtlich still. Aktivitaet und Recovery muessen deshalb mit dem vollstaendigen `VoiceSpeakerKey` statt nur mit der Player-ID arbeiten.
@@ -82,7 +87,7 @@ Auswirkung: Modifier-Design in `com.earshot.voice`; Basis-Distanz-Falloff bleibt
 
 ## [2026-09-07] Walkie Sidetone + First-Speaker + Fan-out
 Kontext: Nutzer will eigene Stimme versetzt am Boden-Walkie hoeren; bei mehreren Sendern nur den ersten.
-Entscheidung/Fakt: Sidetone per lokalem Mikrofon-Capture waehrend PTT an allen anderen Geraeten des Kanals. Fremdempfang bleibt Half-Duplex-stumm. Remote-Audio wird an alle Empfangs-Walkies gefannt; Arbitration waehlt den fruehesten Sprecher.
+Entscheidung/Fakt: Sidetone aus Vivox' lokalem Capture-Tap waehrend PTT an allen anderen Geraeten des Kanals. Fremdempfang bleibt Half-Duplex-stumm. Remote-Audio wird an alle Empfangs-Walkies gefannt; Arbitration waehlt den fruehesten Sprecher.
 Auswirkung: `WalkieSidetoneCapture`, `WalkieRadioBus`, `WalkieTalkArbitration`, `WalkieDeviceOutput`.
 
 ## [2026-09-06] Walkie V1: Half-Duplex + Delay, Input im Spiel

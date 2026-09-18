@@ -100,7 +100,7 @@ PTT und CanTransmit können lokal bleiben: Vivox trägt die Stimme nur, wenn **d
 
 Das ist die häufigste Fehlerquelle bei zwei+ Spielern. Wenn du z.B. `IsTransmitting` als `NetworkVariable<bool>` synchronisierst und in `OnValueChanged` auf **jedem** Client (Besitzer **und** Remote) `walkie.SetTransmitting(newValue)` aufrufst, denkt der **fremde** Client fälschlich, ER würde gerade senden:
 
-- sein eigenes Mikrofon startet (`Microphone.Start` kann beim ersten Aufruf spürbar rucken/freezen)
+- sein lokaler Vivox-Capture-Sidetone wird fälschlich aktiviert
 - er hört ein Phantom-Sidetone von sich selbst
 - `LocalIsTransmitting` ist bei ihm fälschlich `true`, blockiert lokal den Fremdempfang (Half-Duplex greift grundlos)
 

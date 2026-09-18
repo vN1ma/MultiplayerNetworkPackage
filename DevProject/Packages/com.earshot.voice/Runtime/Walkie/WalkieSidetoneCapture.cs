@@ -1,19 +1,145 @@
+using Unity.Services.Vivox.AudioTaps;
 using UnityEngine;
 
 namespace Earshot.Voice
 {
     /// <summary>
-    /// Lokales Sidetone: waehrend PTT Mikrofon → Bus (mono, Sustain-Gate gegen
-    /// Fussschritte/Klicks, kontinuierlicher Fluss gegen Aussetzer/Knacken).
-    /// <para>
-    /// Wichtig: Mikrofon nimmt mit derselben Rate auf wie Unity ausgibt
-    /// (<see cref="AudioSettings.outputSampleRate"/>) — eine feste 16 kHz-Aufnahme,
-    /// die 1:1 in eine 48 kHz-Ausgabe lief, war der Hauptgrund fuer den
-    /// roboterhaften/zu schnellen Klang (Pitch-Fehler durch fehlendes Resampling).
-    /// </para>
+    /// Verwaltet lokales Sidetone aus Vivox' bestehendem Capture-Stream.
+    /// Oeffnet bewusst kein zweites Unity-Mikrofon.
     /// </summary>
     [AddComponentMenu("")]
     internal sealed class WalkieSidetoneCapture : MonoBehaviour
+    {
+        private VivoxCaptureSourceTap captureTap;
+        private WalkieVivoxCaptureFeed feed;
+        private GameObject tapObject;
+        private int lastTapId = int.MinValue;
+        private float nextCreateAttempt;
+        private bool lastWanted;
+        private string lastChannel;
+
+        internal static WalkieSidetoneCapture EnsureOn(VoiceRuntime runtime)
+        {
+            if (runtime == null) return null;
+            var capture = runtime.GetComponent<WalkieSidetoneCapture>();
+            if (capture == null)
+            {
+                capture = runtime.gameObject.AddComponent<WalkieSidetoneCapture>();
+            }
+
+            return capture;
+        }
+
+        private void Update()
+        {
+            EnsureCaptureTap();
+
+            bool ready = captureTap != null && captureTap.TapId >= 0 && feed != null;
+            bool wanted = ready &&
+                          WalkieTalkieRegistry.LocalIsTransmitting &&
+                          !string.IsNullOrEmpty(WalkieTalkieRegistry.LocalTransmitChannelId);
+            string channel = wanted
+                ? WalkieTalkieRegistry.LocalTransmitChannelId
+                : null;
+
+            if (wanted != lastWanted ||
+                !string.Equals(channel, lastChannel, System.StringComparison.OrdinalIgnoreCase))
+            {
+                bool wasWanted = lastWanted;
+                feed?.SetCaptureState(wanted, channel);
+                lastWanted = wanted;
+                lastChannel = channel;
+
+                if (wanted)
+                {
+                    VoiceSessionLog.Note(
+                        $"WALKIE Sidetone an (Vivox Capture Tap {captureTap.TapId}, " +
+                        $"input='{EarshotVoice.ActiveInputDeviceName}')");
+                }
+                else if (wasWanted)
+                {
+                    VoiceSessionLog.Note("WALKIE Sidetone aus (Vivox Capture Tap)");
+                }
+            }
+
+            if (captureTap != null && captureTap.TapId != lastTapId)
+            {
+                lastTapId = captureTap.TapId;
+                VoiceSessionLog.Note(
+                    $"WALKIE Vivox-Capture-Tap Status: TapId={lastTapId}, " +
+                    $"input='{EarshotVoice.ActiveInputDeviceName}', " +
+                    $"outputRate={SafeOutputSampleRate()} Hz");
+            }
+        }
+
+        private void OnDisable()
+        {
+            feed?.SetCaptureState(false, null);
+            lastWanted = false;
+            lastChannel = null;
+        }
+
+        private void EnsureCaptureTap()
+        {
+            if (captureTap != null || !EarshotVoice.IsConnected) return;
+            if (Time.unscaledTime < nextCreateAttempt) return;
+            nextCreateAttempt = Time.unscaledTime + 2f;
+
+            try
+            {
+                if (tapObject != null) Destroy(tapObject);
+                tapObject = new GameObject("Earshot Vivox Sidetone Tap");
+                tapObject.transform.SetParent(transform, false);
+
+                var source = tapObject.AddComponent<AudioSource>();
+                source.playOnAwake = false;
+                source.loop = false;
+                source.spatialBlend = 0f;
+                source.dopplerLevel = 0f;
+                source.mute = false;
+                source.volume = 1f;
+
+                // Reihenfolge ist wichtig: Vivox speist zuerst die AudioSource,
+                // danach liest der Feed die Samples und nullt den direkten Mix.
+                captureTap = tapObject.AddComponent<VivoxCaptureSourceTap>();
+                feed = tapObject.AddComponent<WalkieVivoxCaptureFeed>();
+                feed.Configure(SafeOutputSampleRate());
+
+                VoiceSessionLog.Note(
+                    $"WALKIE Vivox-Capture-Tap erstellt: TapId={captureTap.TapId}, " +
+                    $"input='{EarshotVoice.ActiveInputDeviceName}'");
+            }
+            catch (System.Exception ex)
+            {
+                if (tapObject != null) Destroy(tapObject);
+                tapObject = null;
+                captureTap = null;
+                feed = null;
+                VoiceSessionLog.Alert(
+                    "WALKIE Vivox-Capture-Tap konnte nicht erstellt werden: " + ex.Message);
+            }
+        }
+
+        private static int SafeOutputSampleRate()
+        {
+            try
+            {
+                int rate = AudioSettings.outputSampleRate;
+                return rate > 0 ? rate : 48000;
+            }
+            catch
+            {
+                return 48000;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Audio-Thread-Feed hinter dem VivoxCaptureSourceTap. Das Tap-Signal wird nur
+    /// in den Walkie-Bus geschrieben und danach aus dem direkten Unity-Mix entfernt.
+    /// </summary>
+    [AddComponentMenu("")]
+    internal sealed class WalkieVivoxCaptureFeed : MonoBehaviour
     {
         private const float GateOpenThreshold = 0.05f;
         private const float GateCloseThreshold = 0.025f;
@@ -22,258 +148,88 @@ namespace Earshot.Voice
         private const float GainReleasePerSecond = 6f;
         private const float SidetoneGain = 0.55f;
 
-        private string micDevice;
-        private AudioClip micClip;
-        private int lastMicPos = -1;
-        private int captureSampleRate = 48000;
-
-        private float[] rawBuffer = new float[4096];
         private float[] monoBuffer = new float[4096];
-
-        private bool running;
+        private volatile bool captureActive;
+        private volatile string captureChannel;
+        private int sampleRate = 48000;
         private float envelope;
         private float aboveThresholdSeconds;
         private float gain;
 
-        private bool prewarmed;
-
-        internal static WalkieSidetoneCapture EnsureOn(VoiceRuntime runtime)
+        internal void Configure(int outputSampleRate)
         {
-            if (runtime == null) return null;
-            var c = runtime.GetComponent<WalkieSidetoneCapture>();
-            if (c == null) c = runtime.gameObject.AddComponent<WalkieSidetoneCapture>();
-            c.Prewarm();
-            return c;
+            if (outputSampleRate > 0) sampleRate = outputSampleRate;
         }
 
-        private void Awake()
+        internal void SetCaptureState(bool active, string channel)
         {
-            CacheSampleRate();
-        }
+            string previousChannel = captureChannel;
+            captureActive = active;
+            captureChannel = active ? channel : null;
+            ResetGate();
 
-        /// <summary>
-        /// Startet/stoppt das Mikrofon einmal ganz kurz beim Verbindungsaufbau statt beim
-        /// ersten echten PTT-Druck. <c>Microphone.Start</c> kann in Unity beim allerersten
-        /// Aufruf spuerbar rucken (Betriebssystem initialisiert das Geraet) — lieber jetzt,
-        /// waehrend eh schon Login/Verbindung laeuft, als mitten im Spiel beim Reinsprechen.
-        /// </summary>
-        private void Prewarm()
-        {
-            if (prewarmed) return;
-            prewarmed = true;
-
-            if (Microphone.devices == null || Microphone.devices.Length == 0) return;
-
-            try
+            if (!string.IsNullOrEmpty(previousChannel))
             {
-                CacheSampleRate();
-                string device = Microphone.devices[0];
-                var clip = Microphone.Start(device, false, 1, captureSampleRate);
-                if (clip != null) Microphone.End(device);
-                VoiceSessionLog.Note(
-                    $"WALKIE Mikrofon-Prewarm: '{device}', {captureSampleRate} Hz, " +
-                    $"erfolgreich={clip != null}");
-            }
-            catch (System.Exception ex)
-            {
-                EarshotVoiceLog.Warn("Mikrofon-Vorwaermen fehlgeschlagen: " + ex.Message);
+                WalkieRadioBus.ClearStream(
+                    previousChannel,
+                    WalkieRadioBus.LocalSidetoneStreamId);
             }
         }
 
-        private void CacheSampleRate()
+        private void OnDisable()
         {
-            try
-            {
-                int rate = AudioSettings.outputSampleRate;
-                if (rate > 0) captureSampleRate = rate;
-            }
-            catch
-            {
-                // Default behalten.
-            }
+            SetCaptureState(false, null);
         }
 
-        private void Update()
+        private void OnAudioFilterRead(float[] data, int channels)
         {
-            WalkieTalkieRegistry.EnsureLocalTransmitStillValid();
+            if (data == null || data.Length == 0) return;
 
-            bool want = WalkieTalkieRegistry.LocalIsTransmitting &&
-                        !string.IsNullOrEmpty(WalkieTalkieRegistry.LocalTransmitChannelId);
+            int channelCount = channels > 0 ? channels : 1;
+            int frames = data.Length / channelCount;
+            if (frames > 0 && captureActive && !string.IsNullOrEmpty(captureChannel))
+            {
+                EnsureCapacity(frames);
+                Downmix(data, channelCount, frames);
+                ApplySustainGateAndGain(frames);
+                WalkieRadioBus.Write(
+                    captureChannel,
+                    WalkieRadioBus.LocalSidetoneStreamId,
+                    monoBuffer,
+                    0,
+                    frames);
+            }
 
-            if (want && !running) StartMic();
-            if (!want && running) StopMic();
-            if (!running) return;
-
-            PumpMic();
+            // Niemals direkt abspielen: hoerbar nur ueber WalkieDeviceOutput.
+            for (int i = 0; i < data.Length; i++) data[i] = 0f;
         }
 
-        private void OnDisable() => StopMic();
-
-        private void StartMic()
+        private void Downmix(float[] data, int channels, int frames)
         {
-            if (Microphone.devices == null || Microphone.devices.Length == 0)
-            {
-                EarshotVoiceLog.Warn("Walkie-Sidetone: kein Mikrofon gefunden.");
-                return;
-            }
-
-            CacheSampleRate();
-
-            micDevice = null;
-            string preferred = EarshotVoice.ActiveInputDeviceName;
-            for (int i = 0; i < Microphone.devices.Length; i++)
-            {
-                string name = Microphone.devices[i];
-                if (EarshotVoice.IsUnusableAudioDevice(name)) continue;
-                if (!string.IsNullOrEmpty(preferred) &&
-                    string.Equals(preferred, name, System.StringComparison.OrdinalIgnoreCase))
-                {
-                    micDevice = name;
-                    break;
-                }
-
-                micDevice ??= name;
-            }
-
-            if (string.IsNullOrEmpty(micDevice))
-            {
-                micDevice = Microphone.devices[0];
-            }
-
-            // Gleiche Rate wie die Ausgabe — sonst Pitch-/Geschwindigkeitsfehler
-            // beim Abspielen am anderen Walkie (klingt roboterhaft/zu schnell).
-            micClip = Microphone.Start(micDevice, true, 1, captureSampleRate);
-            if (micClip == null)
-            {
-                VoiceSessionLog.Alert(
-                    $"WALKIE Sidetone Start fehlgeschlagen: '{micDevice}', {captureSampleRate} Hz");
-                micDevice = null;
-                return;
-            }
-
-            lastMicPos = 0;
-            running = true;
-            envelope = 0f;
-            aboveThresholdSeconds = 0f;
-            gain = 0f;
-
-            string channel = WalkieTalkieRegistry.LocalTransmitChannelId;
-            if (!string.IsNullOrEmpty(channel))
-            {
-                WalkieRadioBus.ClearStream(channel, WalkieRadioBus.LocalSidetoneStreamId);
-            }
-
-            VoiceSessionLog.Note("WALKIE Sidetone an (" + micDevice + ", " + captureSampleRate + " Hz)");
-        }
-
-        private void StopMic()
-        {
-            string channel = WalkieTalkieRegistry.LocalTransmitChannelId;
-            string stoppedDevice = micDevice;
-
-            if (!string.IsNullOrEmpty(micDevice) && Microphone.IsRecording(micDevice))
-            {
-                Microphone.End(micDevice);
-            }
-
-            micClip = null;
-            micDevice = null;
-            lastMicPos = -1;
-            running = false;
-            envelope = 0f;
-            aboveThresholdSeconds = 0f;
-            gain = 0f;
-
-            if (!string.IsNullOrEmpty(channel))
-            {
-                WalkieRadioBus.ClearStream(channel, WalkieRadioBus.LocalSidetoneStreamId);
-            }
-
-            if (!string.IsNullOrEmpty(stoppedDevice))
-            {
-                VoiceSessionLog.Note($"WALKIE Sidetone aus (Mikrofon '{stoppedDevice}')");
-            }
-        }
-
-        private void PumpMic()
-        {
-            if (micClip == null || string.IsNullOrEmpty(micDevice)) return;
-            string channel = WalkieTalkieRegistry.LocalTransmitChannelId;
-            if (string.IsNullOrEmpty(channel)) return;
-
-            int pos = Microphone.GetPosition(micDevice);
-            if (pos < 0 || pos == lastMicPos) return;
-
-            int samples = micClip.samples;
-            int channels = Mathf.Max(1, micClip.channels);
-            int frameCount = pos > lastMicPos
-                ? pos - lastMicPos
-                : samples - lastMicPos + pos;
-
-            if (frameCount <= 0) return;
-
-            int startFrame = lastMicPos;
-
-            if (startFrame + frameCount <= samples)
-            {
-                ReadAndProcess(channel, startFrame, frameCount, channels);
-            }
-            else
-            {
-                int firstFrames = samples - startFrame;
-                ReadAndProcess(channel, startFrame, firstFrames, channels);
-
-                int secondFrames = frameCount - firstFrames;
-                if (secondFrames > 0)
-                {
-                    ReadAndProcess(channel, 0, secondFrames, channels);
-                }
-            }
-
-            lastMicPos = pos;
-        }
-
-        private void ReadAndProcess(string channel, int startFrame, int frameCount, int channels)
-        {
-            int rawLength = frameCount * channels;
-            EnsureCapacity(frameCount, rawLength);
-
-            micClip.GetData(rawBuffer, startFrame);
-
-            // Downmix auf Mono — der Bus transportiert ausschliesslich Mono-Frames.
-            for (int f = 0; f < frameCount; f++)
+            for (int frame = 0; frame < frames; frame++)
             {
                 float sum = 0f;
-                int baseIdx = f * channels;
-                for (int c = 0; c < channels; c++) sum += rawBuffer[baseIdx + c];
-                monoBuffer[f] = sum / channels;
+                int baseIndex = frame * channels;
+                for (int channel = 0; channel < channels; channel++)
+                {
+                    sum += data[baseIndex + channel];
+                }
+
+                monoBuffer[frame] = sum / channels;
             }
-
-            ApplySustainGateAndGain(frameCount);
-
-            WalkieRadioBus.Write(channel, WalkieRadioBus.LocalSidetoneStreamId, monoBuffer, 0, frameCount);
         }
 
-        /// <summary>
-        /// Kein hartes An/Aus (das erzeugt Knacken) — stattdessen ein weich
-        /// nachziehender Gain, der erst oeffnet, wenn der Pegel eine kurze Zeit
-        /// (<see cref="SustainSecondsToOpen"/>) am Stueck ueber der Schwelle bleibt.
-        /// Kurze Transienten wie Fussschritt-Klicks bleiben so meist unten der
-        /// Schwelle bzw. zu kurz, um den Gate zu oeffnen.
-        /// </summary>
         private void ApplySustainGateAndGain(int frameCount)
         {
-            float dt = frameCount / (float)Mathf.Max(1, captureSampleRate);
-
             float peak = 0f;
             for (int i = 0; i < frameCount; i++)
             {
-                float a = monoBuffer[i];
-                if (a < 0f) a = -a;
-                if (a > peak) peak = a;
+                float value = monoBuffer[i] < 0f ? -monoBuffer[i] : monoBuffer[i];
+                if (value > peak) peak = value;
             }
 
-            envelope = Mathf.Lerp(envelope, peak, peak > envelope ? 0.5f : 0.15f);
+            envelope += (peak - envelope) * (peak > envelope ? 0.5f : 0.15f);
+            float dt = frameCount / (float)(sampleRate > 0 ? sampleRate : 48000);
 
             if (envelope >= GateOpenThreshold)
             {
@@ -286,7 +242,17 @@ namespace Earshot.Voice
 
             float targetGain = aboveThresholdSeconds >= SustainSecondsToOpen ? 1f : 0f;
             float rate = targetGain > gain ? GainAttackPerSecond : GainReleasePerSecond;
-            gain = Mathf.MoveTowards(gain, targetGain, rate * dt);
+            float step = rate * dt;
+            if (gain < targetGain)
+            {
+                gain += step;
+                if (gain > targetGain) gain = targetGain;
+            }
+            else
+            {
+                gain -= step;
+                if (gain < targetGain) gain = targetGain;
+            }
 
             float finalGain = gain * SidetoneGain;
             for (int i = 0; i < frameCount; i++)
@@ -295,10 +261,16 @@ namespace Earshot.Voice
             }
         }
 
-        private void EnsureCapacity(int frameCount, int rawLength)
+        private void ResetGate()
         {
-            if (rawBuffer.Length < rawLength) rawBuffer = new float[rawLength];
-            if (monoBuffer.Length < frameCount) monoBuffer = new float[frameCount];
+            envelope = 0f;
+            aboveThresholdSeconds = 0f;
+            gain = 0f;
+        }
+
+        private void EnsureCapacity(int frames)
+        {
+            if (monoBuffer.Length < frames) monoBuffer = new float[frames];
         }
     }
 }
