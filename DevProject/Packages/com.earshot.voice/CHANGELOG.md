@@ -66,8 +66,10 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   exakte Senderinstanz; Loslassen beendet Half-Duplex und Sidetone sofort und dauerhaft.
 - Der neue `VivoxCaptureSourceTap` konnte als ungefilterte globale 2D-Quelle in den
   finalen Mix gelangen. Ein einzelner Tap bleibt mit normalem Gain DSP-aktiv; der Feed
-  kopiert jeden Block einmal und ersetzt danach den direkten Ausgang durch Null-Samples.
-  Bereits kanonische Kanal-IDs erzeugen dabei keine String-Allokationen im Audiopfad.
+  nullt seinen Filterpuffer und `AudioSource.mute` sperrt den Unity-Ausgang als zweite,
+  unabhaengige Sicherung. Capture-Logs enthalten jetzt Eingangs- und Ausgangspegel,
+  Callback-Zahl, Source-Zustand, Diagnose-Revision sowie aktive/verfuegbare Vivox-Geraete.
+  Bereits kanonische Kanal-IDs erzeugen keine String-Allokationen im Audiopfad.
 - Proximity- und Funk-Tap desselben Spielers wurden bei Single-Channel-Sendung gegenseitig
   als haengend fehlinterpretiert und alle sechs Sekunden synchron neu aufgebaut. Recovery
   prueft und erneuert jetzt nur noch den exakten `VoiceSpeakerKey`-Pfad.

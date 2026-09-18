@@ -10,12 +10,17 @@ namespace Earshot.Voice
     [AddComponentMenu("")]
     internal sealed class WalkieSidetoneCapture : MonoBehaviour
     {
+        private const string DiagnosticRevision = "capture-hardmute-v2";
+
         private VivoxCaptureSourceTap captureTap;
         private WalkieVivoxCaptureFeed feed;
+        private AudioSource tapSource;
         private GameObject tapObject;
+        private readonly float[] outputDiagnosticBuffer = new float[256];
         private int lastTapId = int.MinValue;
         private float nextCreateAttempt;
         private float nextFlowDiagnostic;
+        private bool deviceInventoryLogged;
         private bool lastWanted;
         private string lastChannel;
 
@@ -35,6 +40,7 @@ namespace Earshot.Voice
         {
             WalkieTalkieRegistry.EnsureLocalTransmitStillValid();
             EnsureCaptureTap();
+            EnforceDirectOutputMute();
 
             bool ready = captureTap != null && captureTap.TapId >= 0 && feed != null;
             bool wanted = ready &&
@@ -77,9 +83,13 @@ namespace Earshot.Voice
             {
                 nextFlowDiagnostic = Time.unscaledTime + 2f;
                 feed.ConsumeDiagnostics(out int callbacks, out int signalBlocks, out float peak);
+                float directOutputPeak = ReadDirectOutputPeak();
                 VoiceSessionLog.Note(
                     $"WALKIE CAPTURE FLOW: TapId={captureTap.TapId}, callbacks={callbacks}, " +
-                    $"signalBlocks={signalBlocks}, peak={peak:0.0000}, channel='{channel}'");
+                    $"signalBlocks={signalBlocks}, inputPeak={peak:0.0000}, " +
+                    $"directOutputPeak={directOutputPeak:0.000000}, sourcePlaying={tapSource.isPlaying}, " +
+                    $"sourceMute={tapSource.mute}, sourceVolume={tapSource.volume:0.000}, " +
+                    $"channel='{channel}', revision='{DiagnosticRevision}'");
             }
         }
 
@@ -102,16 +112,16 @@ namespace Earshot.Voice
                 tapObject = new GameObject("Earshot Vivox Sidetone Tap");
                 tapObject.transform.SetParent(transform, false);
 
-                var source = tapObject.AddComponent<AudioSource>();
-                source.playOnAwake = false;
-                source.loop = false;
-                source.spatialBlend = 0f;
-                source.dopplerLevel = 0f;
-                source.mute = false;
-                // Der Capture-Pfad muss voll DSP-aktiv bleiben. Die Feed-Komponente
-                // kopiert die Samples und ersetzt den Ausgangspuffer danach durch echte
-                // Nullen; es wird kein leiser 2D-Pfad in den finalen Mix geschickt.
-                source.volume = 1f;
+                tapSource = tapObject.AddComponent<AudioSource>();
+                tapSource.playOnAwake = false;
+                tapSource.loop = false;
+                tapSource.spatialBlend = 0f;
+                tapSource.dopplerLevel = 0f;
+                tapSource.volume = 1f;
+                // Unity verarbeitet eine spielende, gemutete AudioSource weiterhin im
+                // DSP-Graph. Damit bleibt der Capture-Callback aktiv, waehrend der
+                // Source-Ausgang unabhaengig vom Filterpuffer hart stumm ist.
+                tapSource.mute = true;
 
                 // Reihenfolge ist wichtig: Vivox speist zuerst die AudioSource,
                 // danach liest der Feed die Samples und nullt den direkten Mix.
@@ -121,7 +131,9 @@ namespace Earshot.Voice
 
                 VoiceSessionLog.Note(
                     $"WALKIE Vivox-Capture-Tap erstellt: TapId={captureTap.TapId}, " +
-                    $"input='{EarshotVoice.ActiveInputDeviceName}'");
+                    $"input='{EarshotVoice.ActiveInputDeviceName}', hardMute={tapSource.mute}, " +
+                    $"revision='{DiagnosticRevision}'");
+                LogAudioDeviceInventory();
             }
             catch (System.Exception ex)
             {
@@ -129,9 +141,55 @@ namespace Earshot.Voice
                 tapObject = null;
                 captureTap = null;
                 feed = null;
+                tapSource = null;
                 VoiceSessionLog.Alert(
                     "WALKIE Vivox-Capture-Tap konnte nicht erstellt werden: " + ex.Message);
             }
+        }
+
+        private void EnforceDirectOutputMute()
+        {
+            if (tapSource == null || tapSource.mute) return;
+
+            tapSource.mute = true;
+            VoiceSessionLog.Alert(
+                "WALKIE Capture-Source war unerwartet ungemutet und wurde sofort stummgeschaltet.");
+        }
+
+        private float ReadDirectOutputPeak()
+        {
+            if (tapSource == null) return -1f;
+
+            try
+            {
+                tapSource.GetOutputData(outputDiagnosticBuffer, 0);
+                float peak = 0f;
+                for (int i = 0; i < outputDiagnosticBuffer.Length; i++)
+                {
+                    float sample = outputDiagnosticBuffer[i];
+                    float absolute = sample < 0f ? -sample : sample;
+                    if (absolute > peak) peak = absolute;
+                }
+
+                return peak;
+            }
+            catch
+            {
+                return -1f;
+            }
+        }
+
+        private void LogAudioDeviceInventory()
+        {
+            if (deviceInventoryLogged) return;
+            deviceInventoryLogged = true;
+
+            string[] inputs = EarshotVoice.InputDeviceNames;
+            string[] outputs = EarshotVoice.OutputDeviceNames;
+            VoiceSessionLog.Note(
+                $"AUDIO DEVICES: activeInput='{EarshotVoice.ActiveInputDeviceName}', " +
+                $"activeOutput='{EarshotVoice.ActiveOutputDeviceName}', " +
+                $"inputs=[{string.Join(" | ", inputs)}], outputs=[{string.Join(" | ", outputs)}]");
         }
 
         private static int SafeOutputSampleRate()

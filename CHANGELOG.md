@@ -13,7 +13,7 @@ Neueste Einträge oben. Format (siehe `.clinerules/01-workflow.md`):
 ## [2026-09-18] – Walkie-Empfang, PTT-Sync und Sidetone-Reichweite stabilisiert
 - Tap-Recovery arbeitet pro Proximity-/Funkpfad statt pro Spieler und baut absichtlich stille Taps nicht mehr in einer Schleife neu auf. PTT-Aenderungen waehrend eines Vivox-Syncs werden nachgezogen; Sidetone endet hart an der Geraete-Hoergrenze und nutzt den aktiven AudioListener.
 - Sidetone verwendet nun `VivoxCaptureSourceTap` statt das Eingabegerät mit `Microphone.Start` ein zweites Mal zu öffnen. Persistente Sitzungslogs erfassen zusätzlich Walkie-Ausgang, Entfernung/Falloff, Lautstärke, Filter, Capture-Tap-Status sowie Sync-/Recovery-Dauern.
-- PTT-Loslassen löscht nun zuverlässig die exakte Senderinstanz aus der Registry. Ein einzelner Vivox-Capture-Tap bleibt DSP-aktiv; sein Feed kopiert jeden Block einmal und ersetzt den direkten 2D-Ausgang durch echte Null-Samples. Bereits kanonische Kanal-IDs werden im Audiopfad ohne neue String-Allokationen weitergereicht.
+- PTT-Loslassen löscht nun zuverlässig die exakte Senderinstanz aus der Registry. Ein einzelner Vivox-Capture-Tap bleibt DSP-aktiv; Filter-Nullung und hartes Source-Mute sperren unabhängig voneinander seinen direkten 2D-Ausgang. Logs messen Eingang, Callbacks, finalen Source-Ausgang, Mute-Zustand, Code-Revision und sämtliche Vivox-Audiogeräte; kanonische Kanal-IDs bleiben allokationsfrei.
 - Betroffene Dateien: `IVoiceBackend.cs`, `VivoxVoiceBackend.cs`, `VoiceRuntime.cs`, `VoiceSessionLog.cs`, `EarshotWalkieTalkie.cs`, `WalkieTalkieRegistry.cs`, `WalkieRadioSync.cs`, `WalkieDeviceOutput.cs`, `WalkieSidetoneCapture.cs`
 
 ## [2026-09-06] – Schall folgt dem Laufweg, nicht der Luftlinie

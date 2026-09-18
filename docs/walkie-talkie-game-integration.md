@@ -38,6 +38,12 @@ Ein Walkie ist ein **Welt-Objekt** mit `EarshotWalkieTalkie`: eingeschaltet empf
 | Half-Duplex     | Registry + Bus                             | Lokal sendend → kein Fremdempfang (Sidetone bleibt)                                      |
 | Mund dämpfen    | `WalkieRules.MouthVolumeScale`             | Solange derselbe Sprecher funkt und Radio-Audio ankommt, Proximity leiser                |
 
+Der lokale Sidetone-Capture öffnet kein zweites Mikrofon. Er liest genau einen
+`VivoxCaptureSourceTap`, nullt dessen Filterpuffer und hält dessen eigene `AudioSource`
+zusätzlich gemutet. Die Stimme darf deshalb ausschließlich über `WalkieDeviceOutput`
+hörbar werden. Bei Diagnosebedarf zeigen `WALKIE CAPTURE FLOW` und `AUDIO DEVICES`
+getrennt Eingangssignal, Callback-Zahl, direkten Source-Ausgang und Vivox-Gerätewahl.
+
 
 **Nicht im Package:** Mesh, Animator, Hand-/Hüft-Slots, E/G/Q/LMB, Netzwerk-Besitz „wer hält welches Walkie“.
 
