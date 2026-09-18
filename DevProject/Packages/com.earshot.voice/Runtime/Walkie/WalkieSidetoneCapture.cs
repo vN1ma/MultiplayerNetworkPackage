@@ -10,7 +10,7 @@ namespace Earshot.Voice
     [AddComponentMenu("")]
     internal sealed class WalkieSidetoneCapture : MonoBehaviour
     {
-        private const string DiagnosticRevision = "radio-name-dotfree-v5";
+        private const string DiagnosticRevision = "capture-follows-tx-v6";
 
         private VivoxCaptureSourceTap captureTap;
         private WalkieVivoxCaptureFeed feed;
@@ -27,6 +27,9 @@ namespace Earshot.Voice
         private bool reportedMissingPinTarget;
         private float nextPinFailureAlert;
         private float nextRegisterRetry;
+        private string[] txChannelSnapshot = new string[0];
+        private float nextTxSnapshotRefresh;
+        private bool reportedWaitingForTxConfirm;
 
         internal static WalkieSidetoneCapture EnsureOn(VoiceRuntime runtime)
         {
@@ -89,9 +92,12 @@ namespace Earshot.Voice
                 nextFlowDiagnostic = Time.unscaledTime + 2f;
                 feed.ConsumeDiagnostics(out int callbacks, out int signalBlocks, out float peak);
                 float directOutputPeak = ReadDirectOutputPeak();
+                RefreshTxChannelSnapshot();
+                bool tapInTx = ContainsChannel(txChannelSnapshot, captureTap.ChannelName);
                 VoiceSessionLog.Note(
                     $"WALKIE CAPTURE FLOW: TapId={captureTap.TapId}, " +
                     $"tapChannel='{captureTap.ChannelName}', autoAcquire={captureTap.AutoAcquireChannel}, " +
+                    $"txChannels=[{string.Join(" | ", txChannelSnapshot)}], tapInTx={tapInTx}, " +
                     $"callbacks={callbacks}, " +
                     $"signalBlocks={signalBlocks}, inputPeak={peak:0.0000}, " +
                     $"directOutputPeak={directOutputPeak:0.000000}, sourcePlaying={tapSource.isPlaying}, " +
@@ -136,11 +142,9 @@ namespace Earshot.Voice
                 feed = tapObject.AddComponent<WalkieVivoxCaptureFeed>();
                 feed.Configure(SafeOutputSampleRate());
 
-                // WICHTIG: Tap auf den AKTIVEN Sende-Kanal pinnen. Vivox-Capture-
-                // Taps liefern nur Audio fuer den Kanal, auf dem der lokale
-                // Teilnehmer gerade sendet (Log-Beweis 20260918-0652: Tap auf
-                // Proximity + PTT auf Funkkanal => inputPeak=0). Frueheres
-                // Proximity-Pinning (v3) war daher die falsche Richtung.
+                // WICHTIG: Tap auf den aktiven Sende-Kanal pinnen — aber erst,
+                // nachdem Vivox den Sende-Wechsel bestaetigt hat (Begrundung im
+                // Kommentar von TryPinTapToActiveChannel, Revision v6).
                 TryPinTapToActiveChannel();
 
                 VoiceSessionLog.Note(
@@ -163,14 +167,22 @@ namespace Earshot.Voice
         }
 
         /// <summary>
-        /// Pinnt den Capture-Tap auf den Kanal, auf dem der lokale Teilnehmer gerade
-        /// sendet. Vivox-Capture-Taps liefern naemlich nur Audio fuer den aktiven
-        /// Sendekanal: Log 20260918-0551 (Tap folgt Auto-Acquire auf den Funkkanal)
-        /// zeigt fliessendes Signal (peak=0,066), Log 20260918-0652 (Tap fest auf
-        /// Proximity gepinnt, PTT auf Funkkanal) zeigt inputPeak=0 bei laufenden
-        /// Callbacks. Waehrend PTT wird daher auf den Funkkanal
+        /// Pinnt den Capture-Tap auf den Kanal, auf dem der lokale Teilnehmer laut
+        /// Vivox WIRKLICH sendet. v6-Erkenntnis aus Log 20260918-0710: Der Pin lief
+        /// bisher in derselben Frame wie der PTT-Start — 7 bis 14 ms BEVOR
+        /// 'FUNK sendet' (der abgeschlossene SetChannelTransmissionModeAsync-Wechsel)
+        /// — und genau diese Taps blieben dauerhaft stumm (inputPeak=0), obwohl
+        /// TapId positiv und tapChannel korrekt war. Der einzige funktionierende
+        /// Lauf (20260918-0551) hatte Tap und TX beide auf Proximity: Der
+        /// Funkkanal-Join war dort erst NACH PTT-Aus fertig, TX blieb also die
+        /// ganze Zeit auf Proximity. Folgerung: Der native Capture-Tap liefert nur
+        /// Audio fuer den Sende-Kanal, der BEI DER REGISTRIERUNG aktiv war.
+        /// Deshalb wird seit v6 waehrend PTT nur dann auf den Funkkanal
         /// (earshot-radio-&lt;id&gt;, punktfrei — Vivox' Namens-Lookup kuerzt
-        /// Namen mit Punkt ab) gepinnt, im Ruhezustand auf Proximity.
+        /// Namen mit Punkt ab) gepinnt, wenn Vivox ihn in TransmittingChannels
+        /// meldet. Bis zur Bestaetigung bleibt der Tap unangetastet (i. d. R. auf
+        /// Proximity) und liefert sofort Sidetone, solange TX noch dort laeuft.
+        /// Im Ruhezustand wird auf Proximity gepinnt.
         /// Reihenfolge wichtig: AutoAcquireChannel ZUERST abschalten. Der
         /// ChannelName-Setter ist sonst ein No-Opt, wenn Vivox den Namen bereits
         /// automatisch gesetzt hat (Early-Return bei gleichem Namen — Log-Beweis:
@@ -184,10 +196,31 @@ namespace Earshot.Voice
             if (WalkieTalkieRegistry.LocalIsTransmitting &&
                 !string.IsNullOrEmpty(WalkieTalkieRegistry.LocalTransmitChannelId))
             {
-                desired = WalkieRules.ToVivoxRadioChannel(WalkieTalkieRegistry.LocalTransmitChannelId);
+                // v6: Erst pinnen, wenn Vivox den Sende-Wechsel zum Funkkanal
+                // bestaetigt hat. Ein Pin vor dem abgeschlossenen TX-Wechsel
+                // registriert den Tap auf dem alten Sende-Kanal und bleibt
+                // danach stumm (Log 20260918-0710).
+                string radioName = WalkieRules.ToVivoxRadioChannel(WalkieTalkieRegistry.LocalTransmitChannelId);
+                desired = IsTransmittingOn(radioName) ? radioName : null;
+
+                if (desired == null)
+                {
+                    // TX-Wechsel noch nicht bestaetigt: Tap unangetastet lassen.
+                    if (!reportedWaitingForTxConfirm)
+                    {
+                        reportedWaitingForTxConfirm = true;
+                        RefreshTxChannelSnapshot();
+                        VoiceSessionLog.Note(
+                            $"WALKIE Sidetone-Tap wartet auf TX-Bestaetigung fuer '{radioName}' " +
+                            $"(Vivox-Sendekanaele: [{string.Join(" | ", txChannelSnapshot)}])");
+                    }
+                    return;
+                }
+                reportedWaitingForTxConfirm = false;
             }
             else
             {
+                reportedWaitingForTxConfirm = false;
                 var vivoxBackend = VoiceRuntime.Instance != null
                     ? VoiceRuntime.Instance.Backend as VivoxVoiceBackend
                     : null;
@@ -252,6 +285,59 @@ namespace Earshot.Voice
                 VoiceSessionLog.Alert(
                     $"WALKIE Sidetone-Tap-Registration fehlgeschlagen: TapId={captureTap.TapId} " +
                     "(negativ = Vivox-Fehlercode, Details in der Unity-Konsole).");
+            }
+        }
+
+        /// <summary>
+        /// True, wenn Vivox meldet, dass der lokale Teilnehmer in den Kanal sendet.
+        /// Gedrosselt ueber einen 0,1-s-Snapshot, weil TransmittingChannels bei
+        /// jedem Abruf allokiert.
+        /// </summary>
+        private bool IsTransmittingOn(string channelName)
+        {
+            if (string.IsNullOrEmpty(channelName)) return false;
+            RefreshTxChannelSnapshot();
+            return ContainsChannel(txChannelSnapshot, channelName);
+        }
+
+        private static bool ContainsChannel(string[] channels, string channelName)
+        {
+            if (channels == null || string.IsNullOrEmpty(channelName)) return false;
+            for (int i = 0; i < channels.Length; i++)
+            {
+                if (string.Equals(channels[i], channelName, System.StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private void RefreshTxChannelSnapshot()
+        {
+            if (Time.unscaledTime < nextTxSnapshotRefresh) return;
+            nextTxSnapshotRefresh = Time.unscaledTime + 0.1f;
+            txChannelSnapshot = ReadTransmittingChannels();
+        }
+
+        private static string[] ReadTransmittingChannels()
+        {
+            try
+            {
+                var service = Unity.Services.Vivox.VivoxService.Instance;
+                var channels = service != null ? service.TransmittingChannels : null;
+                if (channels == null || channels.Count == 0) return new string[0];
+
+                var result = new string[channels.Count];
+                for (int i = 0; i < channels.Count; i++)
+                {
+                    result[i] = channels[i] ?? string.Empty;
+                }
+                return result;
+            }
+            catch
+            {
+                return new string[0];
             }
         }
 

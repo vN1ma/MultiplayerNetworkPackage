@@ -6,7 +6,7 @@
 
 Status: Sidetone, Fan-out an alle Empfangs-Geraete und First-Speaker-Lock sind drin. Optik/Input bleiben im Game-Repo — siehe `docs/walkie-talkie-game-integration.md`. Debug-Verlauf (Symptome, gescheiterte Ansaetze, Log-Beweise): `docs/walkie-talkie-debug-history.md`.
 
-Nächster Schritt: Package-Revision `radio-name-dotfree-v5` im Spiel updaten (Funkkanal heißt jetzt `earshot-radio-*`, Tap folgt dem Sende-Kanal), allein Sidetone + Capture-Mute testen; zu zweit Freeze/Radio.
+Nächster Schritt: Package-Revision `capture-follows-tx-v6` im Spiel updaten (Funkkanal heißt jetzt `earshot-radio-*`, Tap pinnt erst nach Vivox-TX-Bestätigung), allein Sidetone + Capture-Mute testen; zu zweit Freeze/Radio.
 
 ---
 

@@ -156,7 +156,7 @@ Schluss: Der Ton kam **nicht** vom räumlichen `WalkieDeviceOutput`. Distanz-Fix
 
 **Warum Echo wieder da:** Log bewies räumliches Walkie bei >8 m stumm; Eigenklang blieb → Leak **vor** oder **neben** dem Filter (Vivox schreibt Clip + spielt Source). Filter-Clear allein reichte auf diesem Setup nicht.
 
-### Phase G — Dual-Sperre + Mess-Logs (`cc68dba`, aktuell)
+### Phase G — Dual-Sperre + Mess-Logs (`cc68dba`)
 
 **Ansatz:**
 
@@ -224,7 +224,7 @@ Falls Echo trotz `directOutputPeak=0` und `sourceMute=True` bleibt → Ursache l
 
 **Ergebnis (Log `20260918-0703`): Fix grundsätzlich richtig, aber Registration auf dem Funkkanal schlug mit `TapId=-1012` (native „invalid argument") fehl** — plus massiver Konsolen-Fehler-Spam, weil das Self-Heal pro Frame neu registrierte. Ursache siehe Phase J.
 
-### Phase J — Funkkanal-Namen punktfrei machen (`radio-name-dotfree-v5`, aktuell)
+### Phase J — Funkkanal-Namen punktfrei machen (`radio-name-dotfree-v5`, Namen bleiben in v6)
 
 **Symptom:** Solo-PTT-Test auf `capture-tx-follow-v4`: Pinning auf `earshot.radio.default` lief immer auf `TapId=-1012`, Proximity-Registration funktionierte parallel einwandfrei (`TapId>0`). Unity-Konsole voller „Tap failed to register".
 
@@ -254,6 +254,33 @@ if (channelNameToLookup.Contains("."))
 
 **Restrisiko:** Falls `inputPeak=0` bleibt trotz erfolgreich registriertem Tap auf `earshot-radio-default`, wäre das ein Vivox-Seiteneffekt von `TransmissionMode.Single` — dann Plan B (Sidetone ohne Kanalbezug, Phase I).
 
+### Phase K — Tap pinnt erst nach TX-Bestätigung (`capture-follows-tx-v6`, aktuell)
+
+**Symptom:** Solo-PTT-Test auf `radio-name-dotfree-v5` (Log `20260918-0710`): Pinning auf `earshot-radio-default` jetzt erfolgreich (`TapId>0`; der einzige `-1012` war der Versuch vor dem abgeschlossenen Kanal-Join) — aber weiterhin `signalBlocks=0`, `inputPeak=0` über alle vier PTT-Zyklen. `sourcePlaying=False` ab der zweiten FLOW-Zeile ist eine Folge, keine Ursache: `VivoxAudioProcessor` pausiert die Tap-Source nach 400 ms `NoMoreData` (20 verpasste Reads). Der native Tap liefert also wirklich nichts.
+
+**Ursachen-Analyse (Log `20260918-0710`):**
+
+- Der Pin lief immer **7–14 ms vor** `FUNK sendet` (dem abgeschlossenen `SetChannelTransmissionModeAsync`-Wechsel): Pin `07:10:57.739` → TX-Wechsel `07:10:57.753`. Der Tap wurde also jedes Mal registriert, während TX noch auf Proximity stand.
+- Neu-Bewertung des einzigen funktionierenden Logs (`20260918-0551`): Der Funkkanal-Join war dort erst **nach** PTT-Aus fertig (SYNC r5 mit 996 ms Nachlauf, `joinedChannels=1` erst bei r6). TX blieb also die **ganze Zeit auf Proximity**, und der frische Tap war per Auto-Acquire ebenfalls auf Proximity. Tap und TX passten nur deshalb zusammen — es war nie ein Beweis für „Tap auf Funkkanal funktioniert".
+- Auch Phase H (`0652`) passt ins Bild: Der Tap lief dort nominell auf Proximity, aber das Auto-Acquire war zum Join-Zeitpunkt noch aktiv — `OnChannelJoined` hat ihn auf den zuletzt gejointen Kanal (Funk) umregistriert, wiederum vor dem TX-Wechsel.
+- Folgerung: Der native Capture-Tap (`vxunity_register_for_capture_source`) liefert offenbar nur Audio für den Sende-Kanal, der **bei der Registrierung** aktiv war. Eine Registrierung vor dem TX-Wechsel latcht den alten Kanal und bleibt danach dauerhaft stumm.
+
+**Fix (v6, `WalkieSidetoneCapture.cs`):**
+
+1. `TryPinTapToActiveChannel` pinnt während PTT nur noch auf den Funkkanal, wenn Vivox ihn live in `IVivoxService.TransmittingChannels` meldet (Snapshot max. alle 0,1 s, da die Abfrage alloziert). Bis zur Bestätigung bleibt der Tap unangetastet — i. d. R. auf Proximity — und liefert dadurch **sofort** Sidetone ab Tastendruck, solange TX noch auf Proximity läuft.
+2. Neue Log-Zeile beim Warten: `WALKIE Sidetone-Tap wartet auf TX-Bestaetigung fuer 'earshot-radio-default' (Vivox-Sendekanaele: [...])`.
+3. `CAPTURE FLOW` zeigt jetzt `txChannels=[...]` und `tapInTx=True/False` — damit ist die Theorie im nächsten Log direkt verifizierbar.
+
+**Erfolgskriterium im nächsten Solo-Log:**
+
+- `revision='capture-follows-tx-v6'`
+- bei PTT-Beginn erst `wartet auf TX-Bestaetigung …`, danach `FUNK sendet auf 'default'` und **danach** `WALKIE Sidetone-Tap auf Kanal 'earshot-radio-default' gepinnt: TapId=<positiv>`
+- während PTT: `CAPTURE FLOW: tapChannel='earshot-radio-default', txChannels=[earshot-radio-default], tapInTx=True` mit `signalBlocks>0` und `inputPeak>0` beim Sprechen
+- subjektiv: Sidetone ab dem ersten PTT (anfangs über den Proximity-Tap, nach dem Wechsel über den Funk-Tap)
+
+**Restrisiko:** Falls `tapInTx=True` und trotzdem `inputPeak=0` bleibt, liefert der native Tap auch nach bestätigtem TX nichts — dann ist die native Capture-Speisung unter `TransmissionMode.Single` endgültig tot und Plan B wird umgesetzt (Sidetone ohne Kanalbezug: lokales Mikrofon separat anzapfen statt über den Vivox-Capture-Tap).
+
+
 ---
 
 
@@ -269,11 +296,11 @@ if (channelNameToLookup.Contains("."))
 
 ## 7. Was die Logs jetzt beweisen sollen (Checkliste)
 
-Nach Package-Update im Spiel (`cc68dba`) und einem Solo-PTT-Test:
+Nach Package-Update im Spiel (`capture-follows-tx-v6`) und einem Solo-PTT-Test:
 
 1. Datei unter `HOTEL_GAME/EarshotLogs/voice-*.txt` öffnen.
 2. Einmalig: `AUDIO DEVICES: …`
-3. Bei PTT: `WALKIE Vivox-Capture-Tap erstellt … revision='radio-name-dotfree-v5'` und `WALKIE Sidetone-Tap auf Kanal 'earshot-radio-default' gepinnt … autoAcquire=False`
+3. Bei PTT: `WALKIE Vivox-Capture-Tap erstellt … revision='capture-follows-tx-v6'` (erst `wartet auf TX-Bestaetigung`, dann Pin **nach** `FUNK sendet`) und `WALKIE Sidetone-Tap auf Kanal 'earshot-radio-default' gepinnt … autoAcquire=False`
 4. Periodisch: `WALKIE CAPTURE FLOW: … inputPeak=… directOutputPeak=… sourceMute=True …`
 5. Weit weg: `WALKIE OUTPUT AUS … OUT_OF_RANGE … actual=0`
 6. Nah am Boden-Walkie: `WALKIE OUTPUT AN … mode=SIDETONE …`
@@ -343,9 +370,9 @@ jedes WalkieDeviceOutput (3D, EQ, Delay, Distanz-Cutoff)
 
 ## 11. Nächste Schritte (kurz)
 
-1. Spiel auf Package-Revision `radio-name-dotfree-v5` aktualisieren (alle Clients!), Solo-Hörtest + Log prüfen (Phase-J-Kriterien, Abschnitt 7).
+1. Spiel auf Package-Revision `capture-follows-tx-v6` aktualisieren (alle Clients!), Solo-Hörtest + Log prüfen (Phase-K-Kriterien, Abschnitt 7).
 2. Wenn Solo ok: Zwei-Client-Test (Freeze + Radio-Effekt).
-3. Wenn `signalBlocks=0` / `inputPeak=0` bleibt trotz `tapChannel='earshot-radio-default'`: Vivox-Capture-Tap-Speisung unter `TransmissionMode.Single` untersuchen (Plan B, Phase J).
+3. Wenn `tapInTx=True` und trotzdem `signalBlocks=0` / `inputPeak=0` bleibt: native Tap-Speisung unter `TransmissionMode.Single` endgültig tot erklärt — Plan B umsetzen (Sidetone ohne Kanalbezug, Phase K).
 4. Erst wenn Hörtest grün: Phase-4-Checkbox „Hörtest“ in `PROGRESS.md` abhaken.
 
 ---
