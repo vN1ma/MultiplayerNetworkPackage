@@ -8,10 +8,15 @@ namespace Earshot.Voice
     /// </summary>
     public static class WalkieRules
     {
-        public const string RadioChannelPrefix = "earshot.radio.";
+        // WICHTIG: punktfrei halten! Vivox' GetChannelUriByName kappt bei Namen mit
+        // Punkt alles ab dem LETZTEN Punkt (Workaround fuer Unity-Environment-GUIDs
+        // in ChannelId.Name). "earshot.radio.default" wuerde daher zu "earshot.radio"
+        // gekuerzt, der Lookup schlaegt fehl und Tap-Registrationen auf den Funkkanal
+        // enden mit -1012 (invalid argument) — Log-Beweis 20260918-0703.
+        public const string RadioChannelPrefix = "earshot-radio-";
 
         /// <summary>
-        /// Vivox-Kanalname aus der logischen Funkkanal-ID (z.B. "a" → "earshot.radio.a").
+        /// Vivox-Kanalname aus der logischen Funkkanal-ID (z.B. "a" → "earshot-radio-a").
         /// </summary>
         public static string ToVivoxRadioChannel(string logicalChannelId)
         {

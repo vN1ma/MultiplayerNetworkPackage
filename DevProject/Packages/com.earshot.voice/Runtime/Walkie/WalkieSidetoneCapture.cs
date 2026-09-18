@@ -10,7 +10,7 @@ namespace Earshot.Voice
     [AddComponentMenu("")]
     internal sealed class WalkieSidetoneCapture : MonoBehaviour
     {
-        private const string DiagnosticRevision = "capture-tx-follow-v4";
+        private const string DiagnosticRevision = "radio-name-dotfree-v5";
 
         private VivoxCaptureSourceTap captureTap;
         private WalkieVivoxCaptureFeed feed;
@@ -26,6 +26,7 @@ namespace Earshot.Voice
         private string lastPinnedChannel;
         private bool reportedMissingPinTarget;
         private float nextPinFailureAlert;
+        private float nextRegisterRetry;
 
         internal static WalkieSidetoneCapture EnsureOn(VoiceRuntime runtime)
         {
@@ -168,7 +169,8 @@ namespace Earshot.Voice
         /// zeigt fliessendes Signal (peak=0,066), Log 20260918-0652 (Tap fest auf
         /// Proximity gepinnt, PTT auf Funkkanal) zeigt inputPeak=0 bei laufenden
         /// Callbacks. Waehrend PTT wird daher auf den Funkkanal
-        /// (earshot.radio.&lt;id&gt;) gepinnt, im Ruhezustand auf Proximity.
+        /// (earshot-radio-&lt;id&gt;, punktfrei — Vivox' Namens-Lookup kuerzt
+        /// Namen mit Punkt ab) gepinnt, im Ruhezustand auf Proximity.
         /// Reihenfolge wichtig: AutoAcquireChannel ZUERST abschalten. Der
         /// ChannelName-Setter ist sonst ein No-Opt, wenn Vivox den Namen bereits
         /// automatisch gesetzt hat (Early-Return bei gleichem Namen — Log-Beweis:
@@ -225,10 +227,13 @@ namespace Earshot.Voice
             {
                 captureTap.ChannelName = desired;
             }
-            else if (captureTap.TapId < 0)
+            else if (captureTap.TapId < 0 && Time.unscaledTime >= nextRegisterRetry)
             {
                 // Gleicher Kanal, aber Registration fehlgeschlagen oder verloren:
                 // Component-Neustart erzwingt OnEnable => RegisterTapCore.
+                // Gedrosselt auf max. alle 2 s, sonst spammt jeder Frame eine
+                // Registration (und deren Fehler) in die Konsole.
+                nextRegisterRetry = Time.unscaledTime + 2f;
                 captureTap.enabled = false;
                 captureTap.enabled = true;
             }

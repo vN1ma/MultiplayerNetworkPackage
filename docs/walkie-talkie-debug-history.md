@@ -3,7 +3,7 @@
 Dieses Dokument hält fest, **welche Symptome** auftraten, **welche Ursachen** vermutet und bestätigt wurden, **welche Fixes** versucht wurden und **warum der Eigenklang bei großer Entfernung trotzdem wiederkehrte**. Es ist Absicht, dass die gescheiterten Ansätze hier bleiben — sonst wiederholt sich dieselbe Schleife.
 
 Repos: `HOTEL_GAME` (Spiel) + `MultiplayerNetworkPackage` / `com.earshot.voice` (Package).  
-Aktueller Package-Stand der Diagnose-Revision: `capture-tx-follow-v4` (Capture-Tap folgt dem aktiven Sende-Kanal; Commit siehe Git-Historie).
+Aktueller Package-Stand der Diagnose-Revision: `radio-name-dotfree-v5` (Funkkanal-Namen punktfrei, Capture-Tap folgt dem aktiven Sende-Kanal; Commit siehe Git-Historie).
 
 ---
 
@@ -201,7 +201,7 @@ Falls Echo trotz `directOutputPeak=0` und `sourceMute=True` bleibt → Ursache l
 
 **Ergebnis (Log `20260918-0652`): Restrisiko eingetreten — Phase H widerlegt.** Nach dem Pinning auf Proximity (`tapChannel='<proximity>', autoAcquire=False`) liefen während PTT zwar die Callbacks (`callbacks≈93/2 s`), aber `inputPeak=0.0000` und `signalBlocks=0`. Die Ursachenzuschreibung oben („Tap auf Funkkanal = tot") war falsch — siehe Phase I.
 
-### Phase I — Capture-Tap folgt dem aktiven Sende-Kanal (`capture-tx-follow-v4`, aktuell)
+### Phase I — Capture-Tap folgt dem aktiven Sende-Kanal (`capture-tx-follow-v4`, **superseded durch Phase J**)
 
 **Symptom:** Solo-PTT-Test auf `capture-pin-proximity-v3`: Sidetone weiterhin stumm. Log `20260918-0652` zeigt zwei Dinge:
 
@@ -222,7 +222,37 @@ Falls Echo trotz `directOutputPeak=0` und `sourceMute=True` bleibt → Ursache l
 - während PTT: `CAPTURE FLOW: tapChannel='earshot.radio.default', autoAcquire=False` mit `callbacks>0`, `signalBlocks>0` und `inputPeak>0` beim Sprechen
 - subjektiv: Sidetone während PTT hörbar (Boden-Walkie in Reichweite)
 
-**Restrisiko:** Wenn die Neuregistrierung beim PTT-Start (Kanalwechsel Proximity→Funk) zu langsam ist, können die ersten ~100 ms Sidetone fehlen (Sustain-Gate im Feed fängt das auf). Falls selbst mit `tapChannel='earshot.radio.default'` `inputPeak=0` bleibt, wäre das ein Vivox-Seiteneffekt von `TransmissionMode.Single` — dann Plan B (Sidetone ohne Kanalbezug).
+**Ergebnis (Log `20260918-0703`): Fix grundsätzlich richtig, aber Registration auf dem Funkkanal schlug mit `TapId=-1012` (native „invalid argument") fehl** — plus massiver Konsolen-Fehler-Spam, weil das Self-Heal pro Frame neu registrierte. Ursache siehe Phase J.
+
+### Phase J — Funkkanal-Namen punktfrei machen (`radio-name-dotfree-v5`, aktuell)
+
+**Symptom:** Solo-PTT-Test auf `capture-tx-follow-v4`: Pinning auf `earshot.radio.default` lief immer auf `TapId=-1012`, Proximity-Registration funktionierte parallel einwandfrei (`TapId>0`). Unity-Konsole voller „Tap failed to register".
+
+**Ursache (per Vivox-Runtime-Quellcode belegt):** `VivoxServiceInternal.GetChannelUriByName()` kappt bei Namen mit Punkt alles ab dem **letzten** Punkt — ein Workaround für Unity-Environment-GUIDs in `ChannelId.Name`:
+
+```csharp
+if (channelNameToLookup.Contains("."))
+    channelNameToLookup = channelName.Substring(0, channelName.LastIndexOf("."));
+```
+
+`earshot.radio.default` wird dadurch zu `earshot.radio` gekürzt, findet keine ChannelSession, liefert `null` — und der native `RegisterTapForCaptureSource(80000, null)` quittiert mit `-1012`. Der Proximity-Kanalname ist zufällig punktfrei, deshalb funktionierte genau dort das Pinning. Ein Vivox-Bug, der nur Namen mit Punkten trifft.
+
+**Fix:**
+
+1. `WalkieRules.RadioChannelPrefix` von `earshot.radio.` auf **`earshot-radio-`** geändert — der komplette Funkkanal-Name ist damit punktfrei (`earshot-radio-default`), der Lookup funktioniert. Konstante hat jetzt eine Warnkommentar, damit der Punkt nie wieder reinkommt.
+2. Self-Heal in `WalkieSidetoneCapture` gedrosselt: Neuregistrierungs-Versuch (Component-Neustart) max. alle 2 s — beendet den Konsolen-Spam, falls eine Registration je wieder scheitert.
+3. `WalkieRulesTests` an neue Namen angepasst. Neue Revision: `radio-name-dotfree-v5`.
+
+**Achtung Breaking Change:** Alte Clients nutzen noch `earshot.radio.*`-Kanäle — Clients mit unterschiedlichen Package-Versionen hören sich im Funk **nicht**. Für Tests müssen alle Clients auf `radio-name-dotfree-v5` sein.
+
+**Erfolgskriterium im nächsten Solo-Log:**
+
+- `revision='radio-name-dotfree-v5'`
+- bei PTT-Beginn: `WALKIE Sidetone-Tap auf Kanal 'earshot-radio-default' gepinnt: TapId=<positiv>, autoAcquire=False`
+- während PTT: `CAPTURE FLOW: tapChannel='earshot-radio-default', autoAcquire=False` mit `callbacks>0`, `signalBlocks>0` und `inputPeak>0` beim Sprechen
+- subjektiv: Sidetone während PTT hörbar (Boden-Walkie in Reichweite)
+
+**Restrisiko:** Falls `inputPeak=0` bleibt trotz erfolgreich registriertem Tap auf `earshot-radio-default`, wäre das ein Vivox-Seiteneffekt von `TransmissionMode.Single` — dann Plan B (Sidetone ohne Kanalbezug, Phase I).
 
 ---
 
@@ -243,7 +273,7 @@ Nach Package-Update im Spiel (`cc68dba`) und einem Solo-PTT-Test:
 
 1. Datei unter `HOTEL_GAME/EarshotLogs/voice-*.txt` öffnen.
 2. Einmalig: `AUDIO DEVICES: …`
-3. Bei PTT: `WALKIE Vivox-Capture-Tap erstellt … revision='capture-tx-follow-v4'` und `WALKIE Sidetone-Tap auf Kanal 'earshot.radio.default' gepinnt … autoAcquire=False`
+3. Bei PTT: `WALKIE Vivox-Capture-Tap erstellt … revision='radio-name-dotfree-v5'` und `WALKIE Sidetone-Tap auf Kanal 'earshot-radio-default' gepinnt … autoAcquire=False`
 4. Periodisch: `WALKIE CAPTURE FLOW: … inputPeak=… directOutputPeak=… sourceMute=True …`
 5. Weit weg: `WALKIE OUTPUT AUS … OUT_OF_RANGE … actual=0`
 6. Nah am Boden-Walkie: `WALKIE OUTPUT AN … mode=SIDETONE …`
@@ -313,9 +343,9 @@ jedes WalkieDeviceOutput (3D, EQ, Delay, Distanz-Cutoff)
 
 ## 11. Nächste Schritte (kurz)
 
-1. Spiel auf Package-Revision `capture-tx-follow-v4` aktualisieren, Solo-Hörtest + Log prüfen (Phase-I-Kriterien, Abschnitt 7).
+1. Spiel auf Package-Revision `radio-name-dotfree-v5` aktualisieren (alle Clients!), Solo-Hörtest + Log prüfen (Phase-J-Kriterien, Abschnitt 7).
 2. Wenn Solo ok: Zwei-Client-Test (Freeze + Radio-Effekt).
-3. Wenn `signalBlocks=0` / `inputPeak=0` bleibt trotz `tapChannel='earshot.radio.default'`: Vivox-Capture-Tap-Speisung unter `TransmissionMode.Single` untersuchen (Plan B, Phase I).
+3. Wenn `signalBlocks=0` / `inputPeak=0` bleibt trotz `tapChannel='earshot-radio-default'`: Vivox-Capture-Tap-Speisung unter `TransmissionMode.Single` untersuchen (Plan B, Phase J).
 4. Erst wenn Hörtest grün: Phase-4-Checkbox „Hörtest“ in `PROGRESS.md` abhaken.
 
 ---

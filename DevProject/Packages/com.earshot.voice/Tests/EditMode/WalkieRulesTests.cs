@@ -14,9 +14,9 @@ namespace Earshot.Voice.Tests
         [Test]
         public void ToVivoxRadioChannel_PrefixesAndSanitizes()
         {
-            Assert.AreEqual("earshot.radio.default", WalkieRules.ToVivoxRadioChannel(" "));
-            Assert.AreEqual("earshot.radio.team_a", WalkieRules.ToVivoxRadioChannel("Team A"));
-            Assert.AreEqual("earshot.radio.ops-1", WalkieRules.ToVivoxRadioChannel("ops-1"));
+            Assert.AreEqual("earshot-radio-default", WalkieRules.ToVivoxRadioChannel(" "));
+            Assert.AreEqual("earshot-radio-team_a", WalkieRules.ToVivoxRadioChannel("Team A"));
+            Assert.AreEqual("earshot-radio-ops-1", WalkieRules.ToVivoxRadioChannel("ops-1"));
         }
 
         [Test]
