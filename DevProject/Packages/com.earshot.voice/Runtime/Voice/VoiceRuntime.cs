@@ -34,10 +34,10 @@ namespace Earshot.Voice
         // Selbstheilung fuer haengende Taps (siehe IVoiceBackendRecovery). Bewusst hier
         // und nicht im Backend: nur hier kennen wir TapIsPlaying, den einzigen Wert, der
         // wirklich beweist, dass ECHTES Audio ankommt - AudioSource.isPlaying nicht.
-        private readonly Dictionary<string, float> deadSince =
-            new Dictionary<string, float>(System.StringComparer.OrdinalIgnoreCase);
-        private readonly Dictionary<string, float> lastRecoveryAttempt =
-            new Dictionary<string, float>(System.StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<VoiceSpeakerKey, float> deadSince =
+            new Dictionary<VoiceSpeakerKey, float>();
+        private readonly Dictionary<VoiceSpeakerKey, float> lastRecoveryAttempt =
+            new Dictionary<VoiceSpeakerKey, float>();
         private readonly List<VoiceEmitter> stuckCheckBuffer = new List<VoiceEmitter>();
 
         // TapIsPlaying braucht selbst schon bis zu 0,6s ohne Signal, um "tot" zu melden.
@@ -506,17 +506,20 @@ namespace Earshot.Voice
                 if (emitter == null || string.IsNullOrEmpty(emitter.PlayerId)) continue;
                 if (emitter.PlayerId.StartsWith("debug:", System.StringComparison.Ordinal)) continue;
 
-                string playerId = emitter.PlayerId;
+                var key = new VoiceSpeakerKey(
+                    emitter.PlayerId,
+                    emitter.PathKind,
+                    emitter.ChannelId);
 
                 if (emitter.TapIsPlaying)
                 {
-                    deadSince.Remove(playerId);
+                    deadSince.Remove(key);
                     continue;
                 }
 
-                if (!deadSince.TryGetValue(playerId, out float since))
+                if (!deadSince.TryGetValue(key, out float since))
                 {
-                    deadSince[playerId] = now;
+                    deadSince[key] = now;
                     continue;
                 }
 
@@ -524,14 +527,14 @@ namespace Earshot.Voice
 
                 // Redet der Dienst zufolge gerade niemand, ist die Stille normal
                 // (Sprechpause) - dann gibt es nichts zu heilen.
-                if (!recovery.IsSpeaking(playerId)) continue;
+                if (!recovery.IsSpeaking(key)) continue;
 
-                lastRecoveryAttempt.TryGetValue(playerId, out float lastTry);
+                lastRecoveryAttempt.TryGetValue(key, out float lastTry);
                 if (now - lastTry < RecoveryCooldownSeconds) continue;
 
-                lastRecoveryAttempt[playerId] = now;
-                deadSince.Remove(playerId);
-                recovery.RecoverSpeaker(playerId);
+                lastRecoveryAttempt[key] = now;
+                deadSince.Remove(key);
+                recovery.RecoverSpeaker(key);
             }
         }
 

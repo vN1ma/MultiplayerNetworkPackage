@@ -380,47 +380,23 @@ namespace Earshot.Voice
             return false;
         }
 
-        bool IVoiceBackendRecovery.IsSpeaking(string playerId)
+        bool IVoiceBackendRecovery.IsSpeaking(VoiceSpeakerKey key)
         {
-            foreach (var pair in participants)
-            {
-                if (!string.Equals(pair.Key.PlayerId, playerId, StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                var participant = pair.Value;
-                if (participant != null &&
-                    (participant.SpeechDetected || participant.AudioEnergy > 0.02))
-                {
-                    return true;
-                }
-            }
-
-            return false;
+            return participants.TryGetValue(key, out var participant) &&
+                   participant != null &&
+                   (participant.SpeechDetected || participant.AudioEnergy > 0.02);
         }
 
-        void IVoiceBackendRecovery.RecoverSpeaker(string playerId)
+        void IVoiceBackendRecovery.RecoverSpeaker(VoiceSpeakerKey key)
         {
-            var keys = new List<VoiceSpeakerKey>();
-            foreach (var pair in participants)
-            {
-                if (string.Equals(pair.Key.PlayerId, playerId, StringComparison.OrdinalIgnoreCase))
-                {
-                    keys.Add(pair.Key);
-                }
-            }
-
-            for (int i = 0; i < keys.Count; i++)
-            {
-                RecoverKey(keys[i]);
-            }
+            RecoverKey(key);
         }
 
         private void RecoverKey(VoiceSpeakerKey key)
         {
             if (!participants.TryGetValue(key, out var participant) || participant == null) return;
 
+            var timer = System.Diagnostics.Stopwatch.StartNew();
             VoiceSessionLog.Alert(
                 $"SELBSTHEILUNG: Tap von {key} liefert kein echtes Signal mehr, " +
                 "obwohl Vivox 'redet gerade' meldet - Tap wird neu aufgebaut.");
@@ -439,6 +415,10 @@ namespace Earshot.Voice
             if (wasTracked) SpeakerRemoved?.Invoke(key);
 
             TryCreateTap(participant);
+            timer.Stop();
+            VoiceSessionLog.Note(
+                $"SELBSTHEILUNG fertig: {key}, {timer.ElapsedMilliseconds} ms, " +
+                $"wiederhergestellt={participants.ContainsKey(key)}");
         }
     }
 }

@@ -18,6 +18,7 @@ namespace Earshot.Voice
     {
         private const int MaxDelaySeconds = 2;
         private const float VolumeSmoothPerSecond = 6f;
+        private const float ActiveDiagnosticIntervalSeconds = 5f;
 
         // Nie naeher als das rechnen — sonst kann ein Geraet direkt am Ohr (z.B. Hand-Modell
         // sehr nah am Kopf) auf maximale Lautstaerke kommen und mit dem Mikro echte akustische
@@ -53,6 +54,8 @@ namespace Earshot.Voice
         private float[] monoPullBuffer = new float[2048];
         private float smoothedVolume;
         private float radioCrunch;
+        private string lastDiagnosticState;
+        private float nextActiveDiagnostic;
 
         // Sample-and-Hold-Zustand fuer den Alter-Funk-Effekt (nur Audio-Thread).
         private int crunchHoldCounter;
@@ -228,6 +231,7 @@ namespace Earshot.Voice
             radioCrunch = walkie.RadioCrunch;
 
             bool active = ShouldOutput();
+            float falloff = DistanceFalloff(out float listenerDistance, out Vector3 listenerPosition);
             float targetVolume = 0f;
             if (active)
             {
@@ -235,7 +239,7 @@ namespace Earshot.Voice
                 float baseVol = sidetone
                     ? WalkieTalkieRegistry.ActiveSidetoneWorldVolume
                     : walkie.RadioVolume;
-                targetVolume = Mathf.Clamp01(baseVol * DistanceFalloff() * EarshotVoice.HeardVoiceVolume);
+                targetVolume = Mathf.Clamp01(baseVol * falloff * EarshotVoice.HeardVoiceVolume);
             }
 
             smoothedVolume = Mathf.MoveTowards(
@@ -243,6 +247,13 @@ namespace Earshot.Voice
                 targetVolume,
                 Time.unscaledDeltaTime * VolumeSmoothPerSecond);
             source.volume = smoothedVolume;
+
+            ReportOutputDiagnostic(
+                active,
+                targetVolume,
+                falloff,
+                listenerDistance,
+                listenerPosition);
         }
 
         private bool IsSidetoneMode()
@@ -280,34 +291,117 @@ namespace Earshot.Voice
             return !string.IsNullOrEmpty(winner);
         }
 
-        private float DistanceFalloff()
+        private float DistanceFalloff(out float rawDistance, out Vector3 listener)
         {
             // Kein bekannter Zuhoerer-Ort: lieber still als versehentlich auf voller
             // Lautstaerke senden (frueher wurde hier faelschlich 1f/volle Lautstaerke
             // zurueckgegeben).
-            if (!TryListenerPosition(out Vector3 listener)) return 0f;
+            if (!TryListenerPosition(out listener))
+            {
+                rawDistance = -1f;
+                return 0f;
+            }
+
             float max = Mathf.Max(1f, walkie.MaxHearingDistance);
-            float d = Mathf.Max(Vector3.Distance(listener, transform.position), MinPerceivedDistance);
+            rawDistance = Vector3.Distance(listener, transform.position);
+            if (rawDistance >= max) return 0f;
+            float d = Mathf.Max(rawDistance, MinPerceivedDistance);
             float t = 1f - Mathf.Clamp01(d / max);
             return t * t;
         }
 
-        private static bool TryListenerPosition(out Vector3 position)
+        private void ReportOutputDiagnostic(
+            bool pathActive,
+            float targetVolume,
+            float falloff,
+            float listenerDistance,
+            Vector3 listenerPosition)
         {
-            var local = VoiceRoster.LocalPlayer;
-            if (local?.VoiceAnchor != null)
+            bool sidetone = IsSidetoneMode();
+            bool audible = pathActive && targetVolume > 0.0001f;
+            string mode = sidetone ? "SIDETONE" : "REMOTE";
+            string stream = sidetone
+                ? WalkieRadioBus.LocalSidetoneStreamId
+                : WalkieRadioBus.GetAudibleRemote(walkie.ChannelId);
+            string reason = ResolveDiagnosticReason(pathActive, listenerDistance);
+            string state = $"{mode}|{audible}|{reason}|{stream}";
+            float now = Time.unscaledTime;
+
+            bool changed = !string.Equals(
+                state,
+                lastDiagnosticState,
+                System.StringComparison.Ordinal);
+            bool periodic = audible && now >= nextActiveDiagnostic;
+            if (!changed && !periodic) return;
+
+            lastDiagnosticState = state;
+            nextActiveDiagnostic = now + ActiveDiagnosticIntervalSeconds;
+
+            int listenerCount = CountEnabledAudioListeners();
+            string distanceText = listenerDistance >= 0f
+                ? listenerDistance.ToString("0.00") + "m"
+                : "unbekannt";
+
+            VoiceSessionLog.Note(
+                $"WALKIE OUTPUT {(audible ? "AN" : "AUS")}: device='{walkie.gameObject.name}', " +
+                $"channel='{walkie.ChannelId}', mode={mode}, stream='{stream}', reason={reason}, " +
+                $"distance={distanceText}/{walkie.MaxHearingDistance:0.00}m, falloff={falloff:0.000}, " +
+                $"target={targetVolume:0.000}, actual={source.volume:0.000}, " +
+                $"listener={listenerPosition.ToString("F2")}, speaker={transform.position.ToString("F2")}, " +
+                $"listeners={listenerCount}, HP={walkie.HighPassHz:0}Hz, LP={walkie.LowPassHz:0}Hz, " +
+                $"crunch={walkie.RadioCrunch:0.00}, delay={walkie.TransmissionDelaySeconds:0.000}s");
+        }
+
+        private string ResolveDiagnosticReason(bool pathActive, float listenerDistance)
+        {
+            if (!walkie.PoweredOn) return "POWER_OFF";
+            if (walkie.IsTransmitting) return "OWN_DEVICE_TX";
+            if (listenerDistance < 0f) return "NO_LISTENER";
+            if (listenerDistance >= walkie.MaxHearingDistance) return "OUT_OF_RANGE";
+            if (IsSidetoneMode() && listenerDistance < MinSidetoneSelfDistance)
             {
-                position = local.VoiceAnchor.position;
-                return true;
+                return "SELF_DISTANCE_GUARD";
             }
 
-            // Nicht den erstbesten Listener der Szene nehmen — bei mehr als einem aktiven
-            // AudioListener (Unity warnt davor, verhindert es aber nicht) waere das
-            // nichtdeterministisch und koennte z.B. eine Lobby-/Verbindungs-UI-Kamera treffen.
+            if (!pathActive)
+            {
+                if (WalkieTalkieRegistry.LocalIsTransmitting) return "HALF_DUPLEX";
+                return "NO_REMOTE_WINNER";
+            }
+
+            return "AUDIBLE";
+        }
+
+        private static int CountEnabledAudioListeners()
+        {
+            var listeners = Object.FindObjectsByType<AudioListener>(
+                FindObjectsInactive.Exclude,
+                FindObjectsSortMode.None);
+            int count = 0;
+            for (int i = 0; i < listeners.Length; i++)
+            {
+                if (listeners[i] != null && listeners[i].enabled) count++;
+            }
+
+            return count;
+        }
+
+        private static bool TryListenerPosition(out Vector3 position)
+        {
+            // Fuer die tatsaechliche Wiedergabe ist der aktive Unity-Listener die
+            // verlaessliche Hoerposition. Ein falsch/zu spaet als lokal markierter
+            // VoiceRoster-Avatar darf Sidetone nicht aus beliebiger Entfernung hoerbar machen.
             var listener = VoiceRoster.FindPreferredAudioListener();
             if (listener != null)
             {
                 position = listener.transform.position;
+                return true;
+            }
+
+            var local = VoiceRoster.LocalPlayer;
+            if (local?.VoiceAnchor != null)
+            {
+                position = local.VoiceAnchor.position;
                 return true;
             }
 

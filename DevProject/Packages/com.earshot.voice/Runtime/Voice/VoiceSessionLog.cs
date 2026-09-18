@@ -18,10 +18,15 @@ namespace Earshot.Voice
         private static readonly List<string> recent = new List<string>(RecentCapacity);
         private static StreamWriter writer;
         private static string filePath;
+        private static string activeFolderPath;
 
         public static string FilePath => filePath ?? string.Empty;
 
-        public static string FolderPath
+        public static string FolderPath => !string.IsNullOrEmpty(activeFolderPath)
+            ? activeFolderPath
+            : PreferredFolderPath;
+
+        private static string PreferredFolderPath
         {
             get
             {
@@ -49,11 +54,11 @@ namespace Earshot.Voice
 
             try
             {
-                Directory.CreateDirectory(FolderPath);
-                WriteReadme(FolderPath);
+                activeFolderPath = PrepareWritableFolder();
+                WriteReadme(activeFolderPath);
                 string stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss-fff");
                 int pid = System.Diagnostics.Process.GetCurrentProcess().Id;
-                filePath = Path.Combine(FolderPath, $"voice-{stamp}-pid{pid}.txt");
+                filePath = Path.Combine(activeFolderPath, $"voice-{stamp}-pid{pid}.txt");
                 writer = new StreamWriter(filePath, false, new UTF8Encoding(false))
                 {
                     AutoFlush = true
@@ -66,6 +71,8 @@ namespace Earshot.Voice
                 if (!string.IsNullOrEmpty(displayName)) WriteRaw($"# Name: {displayName}");
                 if (!string.IsNullOrEmpty(channelName)) WriteRaw($"# Kanal: {channelName}");
                 WriteRaw($"# Lokale PlayerId: {EarshotVoice.LocalPlayerId}");
+                WriteRaw($"# Unity: {Application.unityVersion}  Plattform: {Application.platform}");
+                WriteRaw($"# Audio: {SafeOutputSampleRate()} Hz  In='{EarshotVoice.ActiveInputDeviceName}'  Out='{EarshotVoice.ActiveOutputDeviceName}'");
                 WriteRaw("#");
                 EarshotVoiceLog.Info("Voice-Log: " + filePath);
             }
@@ -74,6 +81,34 @@ namespace Earshot.Voice
                 EarshotVoiceLog.Exception("Voice-Log konnte nicht angelegt werden", ex);
                 writer = null;
                 filePath = string.Empty;
+            }
+        }
+
+        private static string PrepareWritableFolder()
+        {
+            string preferred = PreferredFolderPath;
+            try
+            {
+                Directory.CreateDirectory(preferred);
+                return preferred;
+            }
+            catch
+            {
+                string fallback = Path.Combine(Application.persistentDataPath, FolderName);
+                Directory.CreateDirectory(fallback);
+                return fallback;
+            }
+        }
+
+        private static int SafeOutputSampleRate()
+        {
+            try
+            {
+                return AudioSettings.outputSampleRate;
+            }
+            catch
+            {
+                return 0;
             }
         }
 

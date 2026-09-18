@@ -10,6 +10,11 @@ Auswirkung: welches Arbeitspaket/welche Datei betroffen ist
 ```
 
 
+## [2026-09-18] Tap-Recovery ist pfadbezogen
+Kontext: Zwei-Client-Walkie-Logs zeigten im Sechs-Sekunden-Takt gleichzeitige Neuaufbauten von Proximity- und Funk-Tap sowie Empfangsruckler.
+Entscheidung/Fakt: Bei Vivox `TransmissionMode.Single` ist einer der beiden Pfade absichtlich still. Aktivitaet und Recovery muessen deshalb mit dem vollstaendigen `VoiceSpeakerKey` statt nur mit der Player-ID arbeiten.
+Auswirkung: `IVoiceBackendRecovery`, `VivoxVoiceBackend` und `VoiceRuntime`; verhindert unnoetige synchrone Tap-Rebuilds beim Empfaenger.
+
 ## [2026-09-06] Graph schlaegt Luftlinie sobald zwei Raeume beteiligt sind
 Kontext: Nutzer: auf der Treppe harter Cutoff; Flurende leiser als der Raum eine Tuer weiter.
 Entscheidung/Fakt: Verschiedene Zonen nutzen immer den Laufweg. Ausserhalb einer Box gilt die naechste Zone (Treppe). Jede Tuer kostet 2,5 m extra, damit ein Raum mehr wirklich leiser ist. Luftlinie nur noch im selben Raum.

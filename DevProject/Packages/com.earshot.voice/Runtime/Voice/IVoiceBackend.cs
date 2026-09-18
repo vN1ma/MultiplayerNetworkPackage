@@ -142,10 +142,10 @@ namespace Earshot.Voice
     /// </summary>
     internal interface IVoiceBackendRecovery
     {
-        /// <summary>Meldet der zugrunde liegende Dienst gerade aktive Sprachaktivitaet von diesem Spieler?</summary>
-        bool IsSpeaking(string playerId);
+        /// <summary>Meldet der Dienst gerade Sprachaktivitaet auf genau diesem Empfangspfad?</summary>
+        bool IsSpeaking(VoiceSpeakerKey key);
 
-        /// <summary>Baut den Empfangsweg (z.B. den Audio Tap) fuer diesen Spieler komplett neu auf.</summary>
-        void RecoverSpeaker(string playerId);
+        /// <summary>Baut genau diesen Empfangsweg (z.B. einen Audio Tap) neu auf.</summary>
+        void RecoverSpeaker(VoiceSpeakerKey key);
     }
 }

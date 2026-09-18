@@ -14,6 +14,9 @@ namespace Earshot.Voice
         private readonly List<string> wantedChannels = new List<string>(4);
         private readonly List<string> joinedScratch = new List<string>(4);
         private bool syncRunning;
+        private bool syncRequested;
+        private int requestedRevision;
+        private int appliedRevision;
 
         internal static WalkieRadioSync EnsureOn(VoiceRuntime runtime)
         {
@@ -39,6 +42,9 @@ namespace Earshot.Voice
         private void QueueSync()
         {
             if (!isActiveAndEnabled) return;
+            syncRequested = true;
+            requestedRevision++;
+            if (syncRunning) return;
             _ = SyncAsync();
         }
 
@@ -49,57 +55,80 @@ namespace Earshot.Voice
 
             try
             {
-                // Kurze Pause, damit mehrere Inspector-/Input-Aenderungen zusammenfallen.
-                await Task.Yield();
-
-                var backend = VoiceRuntime.Instance != null
-                    ? VoiceRuntime.Instance.Backend as IVoiceRadioBackend
-                    : null;
-                if (backend == null) return;
-
-                WalkieTalkieRegistry.CollectPoweredChannelIds(wantedChannels);
-
-                joinedScratch.Clear();
-                backend.CopyJoinedRadioChannels(joinedScratch);
-
-                for (int i = 0; i < wantedChannels.Count; i++)
+                do
                 {
-                    string id = wantedChannels[i];
-                    if (!backend.IsRadioChannelJoined(id))
+                    int revision = requestedRevision;
+                    syncRequested = false;
+                    var timer = System.Diagnostics.Stopwatch.StartNew();
+
+                    // Kurze Pause, damit mehrere Inspector-/Input-Aenderungen zusammenfallen.
+                    await Task.Yield();
+
+                    var backend = VoiceRuntime.Instance != null
+                        ? VoiceRuntime.Instance.Backend as IVoiceRadioBackend
+                        : null;
+                    if (backend == null)
                     {
-                        await backend.EnsureRadioChannelAsync(id);
+                        VoiceSessionLog.Note($"WALKIE SYNC r{revision}: Backend noch nicht bereit.");
+                        continue;
                     }
-                }
 
-                for (int i = 0; i < joinedScratch.Count; i++)
-                {
-                    string id = joinedScratch[i];
-                    bool stillWanted = false;
-                    for (int j = 0; j < wantedChannels.Count; j++)
+                    WalkieTalkieRegistry.CollectPoweredChannelIds(wantedChannels);
+
+                    joinedScratch.Clear();
+                    backend.CopyJoinedRadioChannels(joinedScratch);
+                    bool transmitting = WalkieTalkieRegistry.LocalIsTransmitting;
+                    string transmitChannel = WalkieTalkieRegistry.LocalTransmitChannelId;
+                    VoiceSessionLog.Note(
+                        $"WALKIE SYNC start r{revision}: poweredChannels={wantedChannels.Count}, " +
+                        $"joinedChannels={joinedScratch.Count}, tx={transmitting}, " +
+                        $"txChannel='{transmitChannel}'");
+
+                    for (int i = 0; i < wantedChannels.Count; i++)
                     {
-                        if (string.Equals(wantedChannels[j], id, System.StringComparison.OrdinalIgnoreCase))
+                        string id = wantedChannels[i];
+                        if (!backend.IsRadioChannelJoined(id))
                         {
-                            stillWanted = true;
-                            break;
+                            await backend.EnsureRadioChannelAsync(id);
                         }
                     }
 
-                    if (!stillWanted)
+                    for (int i = 0; i < joinedScratch.Count; i++)
                     {
-                        await backend.LeaveRadioChannelAsync(id);
-                    }
-                }
+                        string id = joinedScratch[i];
+                        bool stillWanted = false;
+                        for (int j = 0; j < wantedChannels.Count; j++)
+                        {
+                            if (string.Equals(wantedChannels[j], id, System.StringComparison.OrdinalIgnoreCase))
+                            {
+                                stillWanted = true;
+                                break;
+                            }
+                        }
 
-                if (WalkieTalkieRegistry.LocalIsTransmitting &&
-                    !string.IsNullOrEmpty(WalkieTalkieRegistry.LocalTransmitChannelId))
-                {
-                    await backend.SetRadioTransmittingAsync(
-                        WalkieTalkieRegistry.LocalTransmitChannelId, true);
-                }
-                else
-                {
-                    await backend.SetRadioTransmittingAsync(null, false);
-                }
+                        if (!stillWanted)
+                        {
+                            await backend.LeaveRadioChannelAsync(id);
+                        }
+                    }
+
+                    if (WalkieTalkieRegistry.LocalIsTransmitting &&
+                        !string.IsNullOrEmpty(WalkieTalkieRegistry.LocalTransmitChannelId))
+                    {
+                        await backend.SetRadioTransmittingAsync(
+                            WalkieTalkieRegistry.LocalTransmitChannelId, true);
+                    }
+                    else
+                    {
+                        await backend.SetRadioTransmittingAsync(null, false);
+                    }
+
+                    appliedRevision = revision;
+                    timer.Stop();
+                    VoiceSessionLog.Note(
+                        $"WALKIE SYNC fertig r{revision}: {timer.ElapsedMilliseconds} ms, " +
+                        $"nachlauf={requestedRevision != revision}, applied={appliedRevision}");
+                } while (syncRequested && isActiveAndEnabled);
             }
             catch (System.Exception ex)
             {
@@ -108,6 +137,7 @@ namespace Earshot.Voice
             finally
             {
                 syncRunning = false;
+                if (syncRequested && isActiveAndEnabled) _ = SyncAsync();
             }
         }
     }

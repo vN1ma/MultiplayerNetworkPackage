@@ -70,6 +70,9 @@ namespace Earshot.Voice
                 string device = Microphone.devices[0];
                 var clip = Microphone.Start(device, false, 1, captureSampleRate);
                 if (clip != null) Microphone.End(device);
+                VoiceSessionLog.Note(
+                    $"WALKIE Mikrofon-Prewarm: '{device}', {captureSampleRate} Hz, " +
+                    $"erfolgreich={clip != null}");
             }
             catch (System.Exception ex)
             {
@@ -140,6 +143,14 @@ namespace Earshot.Voice
             // Gleiche Rate wie die Ausgabe — sonst Pitch-/Geschwindigkeitsfehler
             // beim Abspielen am anderen Walkie (klingt roboterhaft/zu schnell).
             micClip = Microphone.Start(micDevice, true, 1, captureSampleRate);
+            if (micClip == null)
+            {
+                VoiceSessionLog.Alert(
+                    $"WALKIE Sidetone Start fehlgeschlagen: '{micDevice}', {captureSampleRate} Hz");
+                micDevice = null;
+                return;
+            }
+
             lastMicPos = 0;
             running = true;
             envelope = 0f;
@@ -158,6 +169,7 @@ namespace Earshot.Voice
         private void StopMic()
         {
             string channel = WalkieTalkieRegistry.LocalTransmitChannelId;
+            string stoppedDevice = micDevice;
 
             if (!string.IsNullOrEmpty(micDevice) && Microphone.IsRecording(micDevice))
             {
@@ -175,6 +187,11 @@ namespace Earshot.Voice
             if (!string.IsNullOrEmpty(channel))
             {
                 WalkieRadioBus.ClearStream(channel, WalkieRadioBus.LocalSidetoneStreamId);
+            }
+
+            if (!string.IsNullOrEmpty(stoppedDevice))
+            {
+                VoiceSessionLog.Note($"WALKIE Sidetone aus (Mikrofon '{stoppedDevice}')");
             }
         }
 

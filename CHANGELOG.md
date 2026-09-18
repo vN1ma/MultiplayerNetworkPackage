@@ -10,6 +10,11 @@ Neueste Einträge oben. Format (siehe `.clinerules/01-workflow.md`):
 ```
 
 
+## [2026-09-18] – Walkie-Empfang, PTT-Sync und Sidetone-Reichweite stabilisiert
+- Tap-Recovery arbeitet pro Proximity-/Funkpfad statt pro Spieler und baut absichtlich stille Taps nicht mehr in einer Schleife neu auf. PTT-Aenderungen waehrend eines Vivox-Syncs werden nachgezogen; Sidetone endet hart an der Geraete-Hoergrenze und nutzt den aktiven AudioListener.
+- Persistente Sitzungslogs erfassen zusätzlich Walkie-Ausgang, Entfernung/Falloff, Lautstärke, Filter, Mikrofon-Lebenszyklus sowie Sync-/Recovery-Dauern und fallen bei nicht beschreibbarem Projektordner auf `Application.persistentDataPath` zurück.
+- Betroffene Dateien: `IVoiceBackend.cs`, `VivoxVoiceBackend.cs`, `VoiceRuntime.cs`, `VoiceSessionLog.cs`, `WalkieRadioSync.cs`, `WalkieDeviceOutput.cs`, `WalkieSidetoneCapture.cs`
+
 ## [2026-09-06] – Schall folgt dem Laufweg, nicht der Luftlinie
 - Zwischen Raeumen zaehlt der Weg durch Tueren und Treppen. Luftlinie durch Decke oder Schacht macht die Stimme nicht mehr ploetzlich laut oder leise. Knapp neben einer Zone (Treppe) gilt der naechste Raum.
 - Betroffene Dateien: `VoicePipeline.cs`, `VoiceGraph.cs`, `VoiceZone.cs`, `HearingTestLevel.cs`

@@ -23,6 +23,11 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   Stimme ab, unabhaengig von seinem eigenen `IsTransmitting`-Flag
 - Debug-Log beim Sendestart: listet alle anderen eingeschalteten Geraete auf demselben
   Kanal samt Entfernung, warnt bei < 0,5 m (Duplikat-/Sichtmodell-Verdacht)
+- Persistente Walkie-Diagnose im `EarshotLogs`-Sitzungslog: Ausgabegeraet, Modus/Stream,
+  Listener- und Lautsprecherposition, Entfernung/Falloff, Ziel-/Ist-Lautstaerke,
+  Filterwerte, aktive Listener, PTT-Sync-Revision/-Dauer, Tap-Recovery-Dauer und
+  Mikrofon-Start/-Stop. Falls der Projektordner nicht beschreibbar ist, wird
+  `Application.persistentDataPath/EarshotLogs` verwendet.
 
 - Phase 4 Walkie-Talkie: `EarshotWalkieTalkie`, Vivox-Funkkanal (`earshot.radio.*`),
   Half-Duplex, lokales Empfangs-Delay, Leak am Geraet, Mund-Daempfung beim Funken
@@ -56,6 +61,13 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Behoben
 
+- Proximity- und Funk-Tap desselben Spielers wurden bei Single-Channel-Sendung gegenseitig
+  als haengend fehlinterpretiert und alle sechs Sekunden synchron neu aufgebaut. Recovery
+  prueft und erneuert jetzt nur noch den exakten `VoiceSpeakerKey`-Pfad.
+- `WalkieRadioSync` verwirft keine PTT-Aenderungen mehr, die waehrend eines laufenden
+  Vivox-Syncs eintreffen; ein Dirty-Durchlauf uebernimmt immer den neuesten Zustand.
+- Sidetone-Distanz nutzt vorrangig den tatsaechlich aktiven AudioListener und hat an
+  `MaxHearingDistance` einen expliziten harten Cutoff.
 - Sidetone klang roboterhaft/zu schnell: Mikrofon wurde fest mit 16 kHz aufgenommen,
   aber mit der Ausgabe-Rate (meist 48 kHz) abgespielt — jetzt nimmt `WalkieSidetoneCapture`
   mit `AudioSettings.outputSampleRate` auf, kein Pitch-Fehler mehr

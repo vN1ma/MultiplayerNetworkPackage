@@ -115,6 +115,8 @@ Ziel: Funkgeräte als **optionale** Welt-Objekte — die Stimme läuft über ein
 - [x] Umgebungs-Leak: Distanz-Falloff um das empfangende Gerät (Max Hearing Distance)
 - [x] Sender-Dämpfung: Mund-Stimme des Senders leiser, solange Radio-Audio von ihm ankommt
 - [x] Tests: EditMode-Tests für Kanal-Zuordnung, Half-Duplex und „Funk ersetzt Mund"-Skala (`WalkieRulesTests`)
+- [x] Zwei-Client-Stabilisierung: Tap-Recovery pro Empfangspfad, verlustfreier PTT-Sync und harter Sidetone-Reichweiten-Cutoff
+- [x] Persistente Zwei-Client-Diagnose: pro Gerät Distanz/Falloff/Filter/Stream sowie PTT-Sync-, Tap-Recovery- und Mikrofon-Zeiten in `EarshotLogs`
 - [ ] Hörtest: zwei Walkies in der Testszene / im Spiel, alle Verhaltensregeln einzeln verifiziert
 - [ ] Bewusst nicht in V1: Squelch-Knacksen, Reichweitenlimit/Batterie, dominanter Pfad mit weicher Überblendung
 
