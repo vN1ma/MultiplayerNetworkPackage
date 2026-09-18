@@ -280,6 +280,30 @@ if (channelNameToLookup.Contains("."))
 
 **Restrisiko:** Falls `tapInTx=True` und trotzdem `inputPeak=0` bleibt, liefert der native Tap auch nach bestätigtem TX nichts — dann ist die native Capture-Speisung unter `TransmissionMode.Single` endgültig tot und Plan B wird umgesetzt (Sidetone ohne Kanalbezug: lokales Mikrofon separat anzapfen statt über den Vivox-Capture-Tap).
 
+### Phase L — `AudioSource.mute` nullte den Filter-Datenpfad (`capture-unmute-v7`, aktuell)
+
+**Symptom:** Solo-PTT-Test auf `capture-follows-tx-v6` (Log `20260918-0735`): v6 arbeitete exakt wie designed (Warten auf TX-Bestaetigung, Pin **nach** `FUNK sendet`, `tapInTx=True`) — aber weiterhin `signalBlocks=0`, `inputPeak=0.0000` in allen Zyklen.
+
+**Ursachen-Analyse (Log `20260918-0735` + Git-Archäologie):**
+
+- Entscheidendes Beweisfenster `07:35:28.15–31.4`: Tap auf Proximity gepinnt, TX laut `txChannels=[...]` **ebenfalls auf Proximity** (`tapInTx=True`), und `sourcePlaying=True` — d. h. der native Tap lieferte **echte Daten** in den Streaming-Clip (die `VivoxAudioProcessor`-Pause tritt nur nach 400 ms `NoMoreData` ein; die Quelle lief also). Der Feed-Callback feuerte (`callbacks=67`) — und bekam trotzdem **exakt 0.0000**.
+- Git-Zeitleiste: `tapSource.mute = true` kam mit `cc68dba` (06:10, „Dual-Sperre", Revision `capture-hardmute-v2`) — **19 Minuten nach** dem einzigen funktionierenden Lauf `20260918-0551` (05:51, Commit `e46d900` 05:50, ohne Mute). Seither war **jeder** Log stumm.
+- Mechanismus: `AudioSource.mute` hält den DSP-Graph aktiv (`OnAudioFilterRead` feuert weiter → `callbacks>0`), **nullt aber die Samples**, die der Filter-Kette übergeben werden. Der Vivox-`VivoxAudioProcessor` schreibt die nativen Daten unabhängig davon in den Clip — deshalb loggt Vivox-sided alles „gesund", während unser Feed nur Nullen sieht. `directOutputPeak=0` (GetOutputData auf gemuteter Source) war ein weiteres, ignoriertes Symptom desselben Mutes.
+- Folgerung: Die Kanal-Latch-Theorie (v3–v6) war eine Fehldeutung — das beobachtete „native liefert nichts" in diesem Fenster war falsch, es lieferte sehr wohl; nur der Unity-seitige Abgriff war genullt. (`sourcePlaying=False` in späteren FLOW-Zeilen auf dem Funkkanal bleibt als echte offene Frage, siehe Restrisiko.)
+
+**Fix (v7, `WalkieSidetoneCapture.cs`):**
+
+1. `tapSource.mute = false` bei Erstellung — die Direktausgabe bleibt weiterhin stumm, weil der Feed den Puffer am Ende von `OnAudioFilterRead` nullt (das `e46d900`-Design, das im einzigen guten Lauf 0551 funktionierte).
+2. `EnforceDirectOutputMute` → `EnforceDirectOutputUnmuted`: sicherheitshalber erzwingen, dass die Source **nicht** gemutet ist (falls irgendetwas sie erneut mutet, wird entsperrt + Alert geloggt).
+3. Revision `capture-unmute-v7`; v6-TX-Bestätigungs-Pinning bleibt unverändert (sinnvolle Hygiene, reduziert Registrierungs-Churn).
+
+**Erfolgskriterium im nächsten Solo-Log:**
+
+- `revision='capture-unmute-v7'`, `hardMute=False` in der Erstellungs-Zeile
+- in der Warte-Phase (Tap+TX auf Proximity): `sourcePlaying=True`, `callbacks>0` und jetzt `signalBlocks>0`, `inputPeak>0` beim Sprechen → **Sidetone ab dem ersten PTT hörbar**
+- nach `FUNK sendet` + Pin auf `earshot-radio-default`: prüfen, ob `inputPeak>0` bleibt (Funkkanal-Fall)
+
+**Restrisiko:** Falls auf dem Funkkanal (`tapInTx=True`) `sourcePlaying=False` und `inputPeak=0` bleibt **während gesprochen wird**, liefert der native Tap für den Funkkanal wirklich keine Daten — dann Plan B: während Funk-TX den Tap auf Proximity pinnen (Mikro-Audio ist kanalunabhängig) oder lokales Mikrofon-Loopback.
 
 ---
 
@@ -370,9 +394,9 @@ jedes WalkieDeviceOutput (3D, EQ, Delay, Distanz-Cutoff)
 
 ## 11. Nächste Schritte (kurz)
 
-1. Spiel auf Package-Revision `capture-follows-tx-v6` aktualisieren (alle Clients!), Solo-Hörtest + Log prüfen (Phase-K-Kriterien, Abschnitt 7).
+1. Spiel auf Package-Revision `capture-unmute-v7` aktualisieren (alle Clients!), Solo-Hörtest + Log prüfen (Phase-L-Kriterien, Abschnitt 5).
 2. Wenn Solo ok: Zwei-Client-Test (Freeze + Radio-Effekt).
-3. Wenn `tapInTx=True` und trotzdem `signalBlocks=0` / `inputPeak=0` bleibt: native Tap-Speisung unter `TransmissionMode.Single` endgültig tot erklärt — Plan B umsetzen (Sidetone ohne Kanalbezug, Phase K).
+3. Wenn auf dem Funkkanal `tapInTx=True` aber `sourcePlaying=False`/`inputPeak=0` beim Sprechen bleibt: Plan B umsetzen (Tap während Funk-TX auf Proximity pinnen bzw. lokales Mikrofon-Loopback, Phase L).
 4. Erst wenn Hörtest grün: Phase-4-Checkbox „Hörtest“ in `PROGRESS.md` abhaken.
 
 ---

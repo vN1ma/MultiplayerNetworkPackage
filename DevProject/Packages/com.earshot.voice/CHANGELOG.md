@@ -65,11 +65,21 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   Geraete-Flag bereits vorher auf `false` stand. Die Registry merkt sich jetzt die
   exakte Senderinstanz; Loslassen beendet Half-Duplex und Sidetone sofort und dauerhaft.
 - Der neue `VivoxCaptureSourceTap` konnte als ungefilterte globale 2D-Quelle in den
-  finalen Mix gelangen. Ein einzelner Tap bleibt mit normalem Gain DSP-aktiv; der Feed
-  nullt seinen Filterpuffer und `AudioSource.mute` sperrt den Unity-Ausgang als zweite,
-  unabhaengige Sicherung. Capture-Logs enthalten jetzt Eingangs- und Ausgangspegel,
+  finalen Mix gelangen. Ein einzelner Tap bleibt mit normalem Gain DSP-aktiv und
+  ungemutet; der Feed nullt seinen Filterpuffer — das ist die einzige und
+  ausreichende Sicherung gegen direkte Tap-Ausgabe. (`AudioSource.mute` als zweite
+  Sicherung wurde in v7 entfernt: Es nullt die Samples in `OnAudioFilterRead`
+  und blockiert damit den Sidetone-Datenpfad komplett, siehe naechster Punkt.)
+  Capture-Logs enthalten jetzt Eingangs- und Ausgangspegel,
   Callback-Zahl, Source-Zustand, Diagnose-Revision sowie aktive/verfuegbare Vivox-Geraete.
   Bereits kanonische Kanal-IDs erzeugen keine String-Allokationen im Audiopfad.
+- Walkie-Sidetone blieb stumm, obwohl der native Vivox-Capture-Tap Daten lieferte
+  (Log `20260918-0735`: `callbacks>0`, `sourcePlaying=True`, aber `inputPeak=0`).
+  Ursache war das seit `capture-hardmute-v2` gesetzte `AudioSource.mute` auf der
+  Tap-Source: Unity feuert `OnAudioFilterRead` fuer gemutete Quellen weiter,
+  uebergibt dem Filter aber nur Nullen. Der Mute ist entfernt; eine neue
+  `EnforceDirectOutputUnmuted`-Sicherung entsperrt die Source, falls sie doch
+  wieder gemutet wird (Revision `capture-unmute-v7`).
 - Proximity- und Funk-Tap desselben Spielers wurden bei Single-Channel-Sendung gegenseitig
   als haengend fehlinterpretiert und alle sechs Sekunden synchron neu aufgebaut. Recovery
   prueft und erneuert jetzt nur noch den exakten `VoiceSpeakerKey`-Pfad.

@@ -10,7 +10,7 @@ namespace Earshot.Voice
     [AddComponentMenu("")]
     internal sealed class WalkieSidetoneCapture : MonoBehaviour
     {
-        private const string DiagnosticRevision = "capture-follows-tx-v6";
+        private const string DiagnosticRevision = "capture-unmute-v7";
 
         private VivoxCaptureSourceTap captureTap;
         private WalkieVivoxCaptureFeed feed;
@@ -48,7 +48,7 @@ namespace Earshot.Voice
             WalkieTalkieRegistry.EnsureLocalTransmitStillValid();
             EnsureCaptureTap();
             TryPinTapToActiveChannel();
-            EnforceDirectOutputMute();
+            EnforceDirectOutputUnmuted();
 
             bool ready = captureTap != null && captureTap.TapId >= 0 && feed != null;
             bool wanted = ready &&
@@ -131,10 +131,15 @@ namespace Earshot.Voice
                 tapSource.spatialBlend = 0f;
                 tapSource.dopplerLevel = 0f;
                 tapSource.volume = 1f;
-                // Unity verarbeitet eine spielende, gemutete AudioSource weiterhin im
-                // DSP-Graph. Damit bleibt der Capture-Callback aktiv, waehrend der
-                // Source-Ausgang unabhaengig vom Filterpuffer hart stumm ist.
-                tapSource.mute = true;
+                // v7 (Log 20260918-0735): AudioSource.mute NULLED die Samples, die
+                // OnAudioFilterRead erreichen — der Callback lief weiter (callbacks>0),
+                // lieferte aber exakt 0.0000 (signalBlocks=0), obwohl der native Tap
+                // Daten hatte (sourcePlaying=True = keine NoMoreData-Pause). Das Mute
+                // aus 'capture-hardmute-v2' war der Killer, nicht der Kanal-Pin.
+                // Die Direktausgabe bleibt stattdessen ueber den Feed stumm: Der Feed
+                // nullt den Puffer am Ende von OnAudioFilterRead (e46d900-Design,
+                // funktioniert im einzigen guten Lauf 20260918-0551).
+                tapSource.mute = false;
 
                 // Reihenfolge ist wichtig: Vivox speist zuerst die AudioSource,
                 // danach liest der Feed die Samples und nullt den direkten Mix.
@@ -168,21 +173,27 @@ namespace Earshot.Voice
 
         /// <summary>
         /// Pinnt den Capture-Tap auf den Kanal, auf dem der lokale Teilnehmer laut
-        /// Vivox WIRKLICH sendet. v6-Erkenntnis aus Log 20260918-0710: Der Pin lief
-        /// bisher in derselben Frame wie der PTT-Start — 7 bis 14 ms BEVOR
-        /// 'FUNK sendet' (der abgeschlossene SetChannelTransmissionModeAsync-Wechsel)
-        /// — und genau diese Taps blieben dauerhaft stumm (inputPeak=0), obwohl
-        /// TapId positiv und tapChannel korrekt war. Der einzige funktionierende
-        /// Lauf (20260918-0551) hatte Tap und TX beide auf Proximity: Der
-        /// Funkkanal-Join war dort erst NACH PTT-Aus fertig, TX blieb also die
-        /// ganze Zeit auf Proximity. Folgerung: Der native Capture-Tap liefert nur
-        /// Audio fuer den Sende-Kanal, der BEI DER REGISTRIERUNG aktiv war.
-        /// Deshalb wird seit v6 waehrend PTT nur dann auf den Funkkanal
-        /// (earshot-radio-&lt;id&gt;, punktfrei — Vivox' Namens-Lookup kuerzt
-        /// Namen mit Punkt ab) gepinnt, wenn Vivox ihn in TransmittingChannels
-        /// meldet. Bis zur Bestaetigung bleibt der Tap unangetastet (i. d. R. auf
-        /// Proximity) und liefert sofort Sidetone, solange TX noch dort laeuft.
-        /// Im Ruhezustand wird auf Proximity gepinnt.
+        /// Vivox WIRKLICH sendet.
+        /// v7-Kernbefund (Log 20260918-0735): Der wahre Killer war das seit
+        /// 'capture-hardmute-v2' (cc68dba) gesetzte tapSource.mute — es NULLT die
+        /// Samples, die OnAudioFilterRead erreichen (Callback feuert weiter mit
+        /// callbacks&gt;0, liefert aber inputPeak=0.0000), solange native Daten im
+        /// Clip liegen (sourcePlaying=True). Beweis: 07:35:28-31 Tap+TX auf
+        /// Proximity, sourcePlaying=True, callbacks=67 — und trotzdem nur Nullen.
+        /// Der einzige gute Lauf (20260918-0551) lief VOR dem Mute. Die
+        /// v3-v6-Kanaltheorien waren Fehldeutungen desselben Symptoms.
+        /// Die TX-Bestaetigungs-Logik aus v6 bleibt trotzdem sinnvoll (reduziert
+        /// Registrierungs-Churn und haelt Tap und Sende-Kanal konsistent):
+        /// Waehrend PTT wird erst dann auf den Funkkanal (earshot-radio-&lt;id&gt;,
+        /// punktfrei — Vivox' Namens-Lookup kuerzt Namen mit Punkt ab) gepinnt,
+        /// wenn Vivox ihn in TransmittingChannels meldet. Bis zur Bestaetigung
+        /// bleibt der Tap unangetastet (i. d. R. auf Proximity) und liefert
+        /// sofort Sidetone, solange TX noch dort laeuft. Im Ruhezustand wird auf
+        /// Proximity gepinnt.
+        /// Offene Frage fuer den v7-Test: Liefert der native Tap auf dem
+        /// Funkkanal Daten, wenn tapInTx=True? Falls nein (sourcePlaying=False
+        /// trotz Sprechen), ist Plan B noetig (Tap auf Proximity lassen oder
+        /// lokales Mikrofon-Loopback).
         /// Reihenfolge wichtig: AutoAcquireChannel ZUERST abschalten. Der
         /// ChannelName-Setter ist sonst ein No-Opt, wenn Vivox den Namen bereits
         /// automatisch gesetzt hat (Early-Return bei gleichem Namen — Log-Beweis:
@@ -341,13 +352,16 @@ namespace Earshot.Voice
             }
         }
 
-        private void EnforceDirectOutputMute()
+        private void EnforceDirectOutputUnmuted()
         {
-            if (tapSource == null || tapSource.mute) return;
+            // v7: Die Source darf NICHT gemutet sein — AudioSource.mute nullt die
+            // Samples in OnAudioFilterRead (siehe Kommentar in EnsureCaptureTap).
+            // Stumme Direktausgabe garantiert der Feed selbst (Array.Clear).
+            if (tapSource == null || !tapSource.mute) return;
 
-            tapSource.mute = true;
+            tapSource.mute = false;
             VoiceSessionLog.Alert(
-                "WALKIE Capture-Source war unerwartet ungemutet und wurde sofort stummgeschaltet.");
+                "WALKIE Capture-Source war unerwartet gemutet (nullt OnAudioFilterRead) und wurde entsperrt.");
         }
 
         private float ReadDirectOutputPeak()

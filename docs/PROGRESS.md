@@ -6,7 +6,7 @@
 
 Status: Sidetone, Fan-out an alle Empfangs-Geraete und First-Speaker-Lock sind drin. Optik/Input bleiben im Game-Repo — siehe `docs/walkie-talkie-game-integration.md`. Debug-Verlauf (Symptome, gescheiterte Ansaetze, Log-Beweise): `docs/walkie-talkie-debug-history.md`.
 
-Nächster Schritt: Package-Revision `capture-follows-tx-v6` im Spiel updaten (Funkkanal heißt jetzt `earshot-radio-*`, Tap pinnt erst nach Vivox-TX-Bestätigung), allein Sidetone + Capture-Mute testen; zu zweit Freeze/Radio.
+Nächster Schritt: Package-Revision `capture-unmute-v7` im Spiel updaten (Fix: `AudioSource.mute` auf der Tap-Source nullte die Samples in `OnAudioFilterRead` — der Root-Cause hinter allen stummen v3–v6-Läufen), allein Sidetone testen; zu zweit Freeze/Radio.
 
 ---
 
