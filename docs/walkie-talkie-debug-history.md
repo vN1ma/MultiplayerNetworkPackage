@@ -3,7 +3,7 @@
 Dieses Dokument hält fest, **welche Symptome** auftraten, **welche Ursachen** vermutet und bestätigt wurden, **welche Fixes** versucht wurden und **warum der Eigenklang bei großer Entfernung trotzdem wiederkehrte**. Es ist Absicht, dass die gescheiterten Ansätze hier bleiben — sonst wiederholt sich dieselbe Schleife.
 
 Repos: `HOTEL_GAME` (Spiel) + `MultiplayerNetworkPackage` / `com.earshot.voice` (Package).  
-Aktueller Package-Stand der Diagnose-Revision: `capture-pin-proximity-v3` (Capture-Tap fest auf den Proximity-Kanal gepinnt; Commit siehe Git-Historie).
+Aktueller Package-Stand der Diagnose-Revision: `capture-tx-follow-v4` (Capture-Tap folgt dem aktiven Sende-Kanal; Commit siehe Git-Historie).
 
 ---
 
@@ -177,7 +177,7 @@ Falls Echo trotz `directOutputPeak=0` und `sourceMute=True` bleibt → Ursache l
 
 ---
 
-### Phase H — Capture-Tap fest auf Proximity pinnen (`capture-pin-proximity-v3`, aktuell)
+### Phase H — Capture-Tap fest auf Proximity pinnen (`capture-pin-proximity-v3`, **widerlegt**)
 
 **Symptom:** Nach `cc68dba` hörte der Spieler während der kompletten PTT-Phase nichts von sich selbst: `signalBlocks=0` über die gesamte Sendezeit, native Tap liefert `NoMoreData` (~2 s Pause nach 20 verpassten Reads in `VivoxAudioProcessor`).
 
@@ -199,6 +199,31 @@ Falls Echo trotz `directOutputPeak=0` und `sourceMute=True` bleibt → Ursache l
 
 **Restrisiko:** Falls Vivox den Capture-Tap pro Kanal nur bei aktiver Transmission **dieses** Kanals speist, müsste Plan B greifen (Sidetone ohne Kanalbezug / alternatives Routing). Die neuen Log-Felder zeigen das sofort (dann `signalBlocks=0` trotz korrektem `tapChannel`).
 
+**Ergebnis (Log `20260918-0652`): Restrisiko eingetreten — Phase H widerlegt.** Nach dem Pinning auf Proximity (`tapChannel='<proximity>', autoAcquire=False`) liefen während PTT zwar die Callbacks (`callbacks≈93/2 s`), aber `inputPeak=0.0000` und `signalBlocks=0`. Die Ursachenzuschreibung oben („Tap auf Funkkanal = tot") war falsch — siehe Phase I.
+
+### Phase I — Capture-Tap folgt dem aktiven Sende-Kanal (`capture-tx-follow-v4`, aktuell)
+
+**Symptom:** Solo-PTT-Test auf `capture-pin-proximity-v3`: Sidetone weiterhin stumm. Log `20260918-0652` zeigt zwei Dinge:
+
+1. **Pin-Bug:** 529 Zeilen Pin-Spam mit `autoAcquire=True`. Der `ChannelName`-Setter in `VivoxAudioTap` bricht per Early-Return ab, wenn `m_LastChannelName` bereits den gewünschten Namen trägt — und genau das hatte Vivox' Auto-Acquire selbst schon gesetzt (Tap war automatisch auf Proximity registriert). Das Pinning war also ein No-Op, `AutoAcquireChannel` blieb `true`. Erst der Funkkanal-Join (der `m_LastChannelName` löschte) ermöglichte das echte Pinning (TapId 16→19) — danach fest auf Proximity.
+2. **Kern-Erkenntnis:** Trotz korrekt gepinntem Tap auf Proximity: `callbacks=93, signalBlocks=0, inputPeak=0` während PTT auf dem Funkkanal. Vergleich mit dem guten Log `20260918-0551` (Tap war dort dem Auto-Acquire auf den **Funkkanal** gefolgt): `signalBlocks=13→71, peak=0,0361→0,0662`. **Vivox-Capture-Taps liefern nur Audio für den Kanal, auf den der lokale Teilnehmer gerade sendet.** Die Phase-H-Annahme war damit exakt verkehrt herum.
+
+**Fix (`capture-tx-follow-v4`):**
+
+1. `WalkieSidetoneCapture.TryPinTapToActiveChannel()` ersetzt `TryPinTapToProximityChannel()`: Während PTT wird der Tap auf den Funkkanal `earshot.radio.<id>` (`WalkieRules.ToVivoxRadioChannel`) gepinnt, im Ruhezustand auf Proximity. Der Pin wird pro Frame neu geprüft — der Tap wechselt also automatisch mit dem Sende-Kanal.
+2. Reihenfolge im Pinning gefixt: **zuerst** `AutoAcquireChannel = false` setzen (löst seinerseits die Neuregistrierung aus), **danach** `ChannelName` setzen. Nur so ist das Pinning wirksam, wenn Vivox den Zielnamen bereits automatisch gesetzt hat (Phase-H-Spam-Bug).
+3. Pin-Log nur noch bei Kanalwechsel (`lastPinnedChannel`), Fehler-Alerts auf max. alle 2 s gedrosselt.
+4. Self-Heal: Wenn der Zielkanal bereits gepinnt ist, aber `TapId < 0` (Registration fehlgeschlagen/verloren), wird die Tap-Component kurz deaktiviert/reactiviert (`OnEnable` → `RegisterTapCore`).
+
+**Erfolgskriterium im nächsten Solo-Log:**
+
+- `revision='capture-tx-follow-v4'`
+- bei PTT-Beginn: `WALKIE Sidetone-Tap auf Kanal 'earshot.radio.default' gepinnt … autoAcquire=False`, danach bei PTT-Ende zurück auf `'<proximity>'`
+- während PTT: `CAPTURE FLOW: tapChannel='earshot.radio.default', autoAcquire=False` mit `callbacks>0`, `signalBlocks>0` und `inputPeak>0` beim Sprechen
+- subjektiv: Sidetone während PTT hörbar (Boden-Walkie in Reichweite)
+
+**Restrisiko:** Wenn die Neuregistrierung beim PTT-Start (Kanalwechsel Proximity→Funk) zu langsam ist, können die ersten ~100 ms Sidetone fehlen (Sustain-Gate im Feed fängt das auf). Falls selbst mit `tapChannel='earshot.radio.default'` `inputPeak=0` bleibt, wäre das ein Vivox-Seiteneffekt von `TransmissionMode.Single` — dann Plan B (Sidetone ohne Kanalbezug).
+
 ---
 
 
@@ -218,7 +243,7 @@ Nach Package-Update im Spiel (`cc68dba`) und einem Solo-PTT-Test:
 
 1. Datei unter `HOTEL_GAME/EarshotLogs/voice-*.txt` öffnen.
 2. Einmalig: `AUDIO DEVICES: …`
-3. Bei PTT: `WALKIE Vivox-Capture-Tap erstellt … revision='capture-pin-proximity-v3'` und `WALKIE Sidetone-Tap auf Proximity-Kanal '…' gepinnt … autoAcquire=False`
+3. Bei PTT: `WALKIE Vivox-Capture-Tap erstellt … revision='capture-tx-follow-v4'` und `WALKIE Sidetone-Tap auf Kanal 'earshot.radio.default' gepinnt … autoAcquire=False`
 4. Periodisch: `WALKIE CAPTURE FLOW: … inputPeak=… directOutputPeak=… sourceMute=True …`
 5. Weit weg: `WALKIE OUTPUT AUS … OUT_OF_RANGE … actual=0`
 6. Nah am Boden-Walkie: `WALKIE OUTPUT AN … mode=SIDETONE …`
@@ -288,9 +313,9 @@ jedes WalkieDeviceOutput (3D, EQ, Delay, Distanz-Cutoff)
 
 ## 11. Nächste Schritte (kurz)
 
-1. Spiel auf Package-Revision `capture-pin-proximity-v3` aktualisieren, Solo-Hörtest + Log prüfen (Phase-H-Kriterien, Abschnitt 7).
+1. Spiel auf Package-Revision `capture-tx-follow-v4` aktualisieren, Solo-Hörtest + Log prüfen (Phase-I-Kriterien, Abschnitt 7).
 2. Wenn Solo ok: Zwei-Client-Test (Freeze + Radio-Effekt).
-3. Wenn `tapChannel` nicht Proximity ist oder `signalBlocks=0` bleibt trotz Pinning: Vivox-Capture-Tap-Speisung pro Kanal untersuchen (Plan B, Phase H).
+3. Wenn `signalBlocks=0` / `inputPeak=0` bleibt trotz `tapChannel='earshot.radio.default'`: Vivox-Capture-Tap-Speisung unter `TransmissionMode.Single` untersuchen (Plan B, Phase I).
 4. Erst wenn Hörtest grün: Phase-4-Checkbox „Hörtest“ in `PROGRESS.md` abhaken.
 
 ---

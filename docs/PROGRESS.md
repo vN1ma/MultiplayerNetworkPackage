@@ -6,7 +6,7 @@
 
 Status: Sidetone, Fan-out an alle Empfangs-Geraete und First-Speaker-Lock sind drin. Optik/Input bleiben im Game-Repo — siehe `docs/walkie-talkie-game-integration.md`. Debug-Verlauf (Symptome, gescheiterte Ansaetze, Log-Beweise): `docs/walkie-talkie-debug-history.md`.
 
-Nächster Schritt: Package-Revision `capture-pin-proximity-v3` im Spiel updaten (Capture-Tap auf Proximity gepinnt), allein Sidetone + Capture-Mute testen; zu zweit Freeze/Radio.
+Nächster Schritt: Package-Revision `capture-tx-follow-v4` im Spiel updaten (Capture-Tap folgt dem aktiven Sende-Kanal), allein Sidetone + Capture-Mute testen; zu zweit Freeze/Radio.
 
 ---
 
