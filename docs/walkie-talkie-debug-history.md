@@ -564,6 +564,16 @@ jedes WalkieDeviceOutput (3D, EQ, Delay, Distanz-Cutoff)
 3. **Windows-Lautstärkemixer bei gehaltener Sendetaste** beobachten: Schlägt nur „Unity Editor“ aus → Quelle ist im Client (weitergraben); schlägt eine andere App aus → externe Quelle gefunden.
 4. PTT drücken und Log-Zeile `WALKIE RADIO KANAL 'default': ...` prüfen: „2 Teilnehmer“ + Alert → der zweite Client war die Quelle der konstanten Walkie-Stimme.
 
+**v13-Zwischenbefund — sndvol-Analyse des Nutzers (Host, Default = VB-Cable):**
+
+- Während des Spiels schlagen genau 3 Sessions aus: „Lautsprecher“ (Device-Master), „Parsec mini frame“ (Parsec-Capture), „Hotel Game“ (Unity) — **keine versteckte vierte App** → externe Quelle (OBS/Audacity/Steam) endgültig ausgeschlossen (passend zum Prozess-Scan: 1× Unity-Editor PID 22360, kein Build, kein OBS, Steam läuft nicht).
+- Chrome-Tests zeigen: Apps bleiben auf dem Gerät, auf dem sie gestartet wurden; Parsec capturet das Default-Gerät; Wechsel auf „Digitale Ausgabe“ = Stille, weil nichts dorthin spielt.
+- **Konsequenz:** Alles über Parsec Gehörte ist der Mix auf dem VB-Cable, und genau EIN Prozess speist ihn: Unity. ABER: Vivox' native Wiedergabe läuft im selben Prozess und erscheint im Mixer ebenfalls als „Hotel Game“ — sndvol kann Unity-Mix und Vivox-Empfang NICHT trennen. (Peak-Meter sind zudem logarithmisch skaliert — räumliches Falloff ist im Meter nicht sichtbar, „gleicher Ausschlag“ ist kein Beweis für konstante Lautstärke.)
+
+**v14-Zusatz: F8 = Vivox-Ausgabe chirurgisch umleiten.**
+
+`HandleDiagnosticHotkeys` (WalkieSidetoneCapture, Revision `leak-hunt-v14`): F8 leitet Vivox' Ausgabegerät auf das erste physische Gerät (kein VB-Audio/CABLE/Steam/Unusable) um, Unitys eigener Ton bleibt unberührt; nochmal F8 stellt zurück. Diskriminiert die letzten beiden Kandidaten für die „konstante Walkie-Stimme“: (a) Unity-Mix → F8 ändert nichts; (b) Vivox-native Wiedergabe (Teilnehmer ohne Tap, Echo-Loop) → F8 entfernt die Stimme sofort. Zusammen mit der v13-Teilnehmerzeile (`WALKIE RADIO KANAL ...`) ist damit jeder Fall eindeutig entscheidbar.
+
 ---
 
 *Dokument angelegt 2026-09-18. Bei jedem weiteren gescheiterten oder erfolgreichen Ansatz: hier einen kurzen Abschnitt ergänzen (Datum, Symptom, Hypothese, Fix, Log-Beweis, Ergebnis), nicht nur CHANGELOG-Zeilen.*

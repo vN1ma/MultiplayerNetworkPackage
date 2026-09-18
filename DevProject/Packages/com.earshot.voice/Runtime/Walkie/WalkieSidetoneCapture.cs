@@ -10,7 +10,7 @@ namespace Earshot.Voice
     [AddComponentMenu("")]
     internal sealed class WalkieSidetoneCapture : MonoBehaviour
     {
-        private const string DiagnosticRevision = "leak-hunt-v13";
+        private const string DiagnosticRevision = "leak-hunt-v14";
 
         private VivoxCaptureSourceTap captureTap;
         private WalkieVivoxCaptureFeed feed;
@@ -23,6 +23,7 @@ namespace Earshot.Voice
         private bool deviceInventoryLogged;
         private bool diagnosticHardMute;
         private bool diagnosticLegacyVolume;
+        private string diagnosticVivoxOutputBefore;
         private bool diagnosticSidetoneBlocked;
         private readonly float[] inventoryPeakBuffer = new float[256];
         private float nextInventoryLog;
@@ -322,9 +323,66 @@ namespace Earshot.Voice
         /// F10 = Legacy-Modus volume=1: Direktausgabe wieder hoerbar (Gegenprobe,
         /// dass der Leak wirklich die Tap-Direktausgabe war).
         /// F11 = Sidetone-Datenfluss zu den Walkie-Geraeten kappen.
+        /// v14: F8 = Vivox-Nativwiedergabe auf ein physisches Geraet umleiten -
+        /// trennt den Unity-Mix vom Vivox-Empfangspfad (siehe Handler).
         /// </summary>
         private void HandleDiagnosticHotkeys()
         {
+            // v14: Vivox spielt EMPFANGENEN Kanal-Ton zusaetzlich nativ auf sein
+            // Ausgabegeraet (ausserhalb des Unity-Mixes, laeuft aber im Unity-Prozess
+            // und zeigt sich im Windows-Mixer daher als 'Hotel Game'). Fuer getappte
+            // Teilnehmer gilt silenceInFinalMix=true - ein Teilnehmer OHNE Tap
+            // (z.B. ein zweiter Client im Funkkanal, dessen Tap-Anlage fehlschlug)
+            // wird jedoch NATIV und damit nicht-raeumlich abgespielt: 'ueberall gleich
+            // laut'. F8 leitet nur die Vivox-Ausgabe auf ein physisches Geraet um -
+            // Unitys eigener Ton (Meer, Musik, Sidetone) bleibt unberuehrt.
+            if (Input.GetKeyDown(KeyCode.F8))
+            {
+                if (diagnosticVivoxOutputBefore == null)
+                {
+                    string alternate = null;
+                    string current = EarshotVoice.ActiveOutputDeviceName;
+                    string[] devices = EarshotVoice.OutputDeviceNames;
+                    for (int i = 0; i < devices.Length; i++)
+                    {
+                        string name = devices[i];
+                        if (string.IsNullOrEmpty(name)) continue;
+                        if (EarshotVoice.IsUnusableAudioDevice(name)) continue;
+                        if (name.IndexOf("VB-Audio", System.StringComparison.OrdinalIgnoreCase) >= 0) continue;
+                        if (name.IndexOf("CABLE", System.StringComparison.OrdinalIgnoreCase) >= 0) continue;
+                        if (string.Equals(name, current, System.StringComparison.Ordinal)) continue;
+                        alternate = name;
+                        break;
+                    }
+
+                    if (alternate == null)
+                    {
+                        VoiceSessionLog.Alert(
+                            "WALKIE DIAGNOSE F8: Kein physisches Ausgabegeraet gefunden - " +
+                            "Vivox-Umleitung nicht moeglich.");
+                    }
+                    else
+                    {
+                        diagnosticVivoxOutputBefore = current;
+                        _ = EarshotVoice.SetOutputDeviceAsync(alternate);
+                        VoiceSessionLog.Alert(
+                            "WALKIE DIAGNOSE F8: Vivox-Ausgabe umgeleitet auf '" + alternate + "' " +
+                            "(Unity-Ton bleibt unveraendert!). Verschwindet die konstante Walkie-" +
+                            "Stimme jetzt, kam sie aus VIVOX' nativer Wiedergabe - dann empfaengst " +
+                            "du Ton von einem Teilnehmer im Funkkanal (Echo-Loop / fehlender Tap). " +
+                            "Nochmal F8 stellt das alte Geraet wieder her.");
+                    }
+                }
+                else
+                {
+                    string restore = diagnosticVivoxOutputBefore;
+                    diagnosticVivoxOutputBefore = null;
+                    _ = EarshotVoice.SetOutputDeviceAsync(restore);
+                    VoiceSessionLog.Alert(
+                        "WALKIE DIAGNOSE F8: Vivox-Ausgabe zurueck auf '" + restore + "'.");
+                }
+            }
+
             if (Input.GetKeyDown(KeyCode.F9))
             {
                 diagnosticHardMute = !diagnosticHardMute;
