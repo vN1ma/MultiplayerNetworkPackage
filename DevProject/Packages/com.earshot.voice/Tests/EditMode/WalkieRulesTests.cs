@@ -20,6 +20,13 @@ namespace Earshot.Voice.Tests
         }
 
         [Test]
+        public void SanitizeChannelId_ReusesCanonicalString()
+        {
+            string canonical = new string(new[] { 'o', 'p', 's', '-', '1' });
+            Assert.AreSame(canonical, WalkieRules.SanitizeChannelId(canonical));
+        }
+
+        [Test]
         public void TryParseLogicalChannel_RoundTrip()
         {
             string vivox = WalkieRules.ToVivoxRadioChannel("alpha");

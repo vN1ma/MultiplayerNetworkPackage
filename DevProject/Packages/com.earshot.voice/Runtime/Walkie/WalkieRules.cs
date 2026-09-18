@@ -39,6 +39,25 @@ namespace Earshot.Voice
         {
             if (string.IsNullOrWhiteSpace(logicalChannelId)) return "default";
 
+            // Der Normalfall im Audio-Pfad ist bereits kanonisch. Dieselbe Instanz
+            // zurueckzugeben vermeidet pro DSP-Block neue Strings und GC-Druck.
+            bool alreadyCanonical = true;
+            for (int i = 0; i < logicalChannelId.Length; i++)
+            {
+                char c = logicalChannelId[i];
+                bool valid = (c >= 'a' && c <= 'z') ||
+                             (c >= '0' && c <= '9') ||
+                             c == '-' ||
+                             c == '_';
+                if (!valid)
+                {
+                    alreadyCanonical = false;
+                    break;
+                }
+            }
+
+            if (alreadyCanonical) return logicalChannelId;
+
             var chars = logicalChannelId.Trim().ToLowerInvariant().ToCharArray();
             for (int i = 0; i < chars.Length; i++)
             {

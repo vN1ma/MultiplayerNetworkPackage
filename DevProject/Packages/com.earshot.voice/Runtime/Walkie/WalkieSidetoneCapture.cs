@@ -15,6 +15,7 @@ namespace Earshot.Voice
         private GameObject tapObject;
         private int lastTapId = int.MinValue;
         private float nextCreateAttempt;
+        private float nextFlowDiagnostic;
         private bool lastWanted;
         private string lastChannel;
 
@@ -71,6 +72,15 @@ namespace Earshot.Voice
                     $"input='{EarshotVoice.ActiveInputDeviceName}', " +
                     $"outputRate={SafeOutputSampleRate()} Hz");
             }
+
+            if (wanted && Time.unscaledTime >= nextFlowDiagnostic)
+            {
+                nextFlowDiagnostic = Time.unscaledTime + 2f;
+                feed.ConsumeDiagnostics(out int callbacks, out int signalBlocks, out float peak);
+                VoiceSessionLog.Note(
+                    $"WALKIE CAPTURE FLOW: TapId={captureTap.TapId}, callbacks={callbacks}, " +
+                    $"signalBlocks={signalBlocks}, peak={peak:0.0000}, channel='{channel}'");
+            }
         }
 
         private void OnDisable()
@@ -98,10 +108,10 @@ namespace Earshot.Voice
                 source.spatialBlend = 0f;
                 source.dopplerLevel = 0f;
                 source.mute = false;
-                // Der Tap wird nur als Datenquelle benutzt. Volume 0 ist die harte
-                // Sicherung gegen einen ungefilterten, globalen 2D-Monitoring-Pfad;
-                // OnAudioFilterRead erhaelt die Rohsamples weiterhin vor dem Source-Gain.
-                source.volume = 0f;
+                // Der Capture-Pfad muss voll DSP-aktiv bleiben. Die Feed-Komponente
+                // kopiert die Samples und ersetzt den Ausgangspuffer danach durch echte
+                // Nullen; es wird kein leiser 2D-Pfad in den finalen Mix geschickt.
+                source.volume = 1f;
 
                 // Reihenfolge ist wichtig: Vivox speist zuerst die AudioSource,
                 // danach liest der Feed die Samples und nullt den direkten Mix.
@@ -159,6 +169,9 @@ namespace Earshot.Voice
         private float envelope;
         private float aboveThresholdSeconds;
         private float gain;
+        private int diagnosticCallbacks;
+        private int diagnosticSignalBlocks;
+        private volatile float diagnosticPeak;
 
         internal void Configure(int outputSampleRate)
         {
@@ -180,6 +193,14 @@ namespace Earshot.Voice
             }
         }
 
+        internal void ConsumeDiagnostics(out int callbacks, out int signalBlocks, out float peak)
+        {
+            callbacks = System.Threading.Interlocked.Exchange(ref diagnosticCallbacks, 0);
+            signalBlocks = System.Threading.Interlocked.Exchange(ref diagnosticSignalBlocks, 0);
+            peak = diagnosticPeak;
+            diagnosticPeak = 0f;
+        }
+
         private void OnDisable()
         {
             SetCaptureState(false, null);
@@ -193,6 +214,7 @@ namespace Earshot.Voice
             int frames = data.Length / channelCount;
             if (frames > 0 && captureActive && !string.IsNullOrEmpty(captureChannel))
             {
+                System.Threading.Interlocked.Increment(ref diagnosticCallbacks);
                 EnsureCapacity(frames);
                 Downmix(data, channelCount, frames);
                 ApplySustainGateAndGain(frames);
@@ -205,7 +227,7 @@ namespace Earshot.Voice
             }
 
             // Niemals direkt abspielen: hoerbar nur ueber WalkieDeviceOutput.
-            for (int i = 0; i < data.Length; i++) data[i] = 0f;
+            System.Array.Clear(data, 0, data.Length);
         }
 
         private void Downmix(float[] data, int channels, int frames)
@@ -233,6 +255,11 @@ namespace Earshot.Voice
             }
 
             envelope += (peak - envelope) * (peak > envelope ? 0.5f : 0.15f);
+            diagnosticPeak = peak;
+            if (peak >= GateCloseThreshold)
+            {
+                System.Threading.Interlocked.Increment(ref diagnosticSignalBlocks);
+            }
             float dt = frameCount / (float)(sampleRate > 0 ? sampleRate : 48000);
 
             if (envelope >= GateOpenThreshold)

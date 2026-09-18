@@ -17,8 +17,8 @@ Auswirkung: `WalkieTalkieRegistry`; wiederholtes PTT funktioniert und das Hand-W
 
 ## [2026-09-18] Sidetone nutzt Vivox Capture Source Tap
 Kontext: Unity-Diagnoselog zeigte bei null Walkie-Ausgang weiterhin lokales Monitoring, sobald `Microphone.Start` das virtuelle Parsec-Eingabegeraet oeffnete; Vivox dokumentiert `VivoxCaptureSourceTap` fuer das lokale Capture-Signal.
-Entscheidung/Fakt: Sidetone verwendet den bereits von Vivox geoeffneten Capture-Stream und oeffnet nie ein zweites Unity-Mikrofon. Das Tap wird selbst aus dem finalen Mix genullt; hoerbar bleibt es nur ueber raeumliche `WalkieDeviceOutput`s.
-Auswirkung: `WalkieSidetoneCapture`; verhindert Treiber-/Virtual-Device-Monitoring, Geraetekonflikte und PTT-Start-Hitches ohne die Weltgeraete-Ausgabe zu entfernen.
+Entscheidung/Fakt: Sidetone verwendet den bereits von Vivox geoeffneten Capture-Stream und oeffnet nie ein zweites Unity-Mikrofon. Der von Unity/Vivox vorgesehene Filterpfad bleibt mit normalem Source-Gain DSP-aktiv, kopiert jeden Block einmal und ersetzt den finalen Ausgangspuffer danach durch echte Null-Samples. Mixer-Mute oder `AudioSource.volume = 0` werden nicht verwendet, weil sie den fuer Echtzeitdaten benoetigten Callback virtualisieren koennen.
+Auswirkung: `WalkieSidetoneCapture`; es existiert kein direkter 2D-Ausgang, waehrend die einmal erfassten Samples mit niedriger Latenz nur an raeumliche `WalkieDeviceOutput`s verteilt werden.
 
 ## [2026-09-18] Tap-Recovery ist pfadbezogen
 Kontext: Zwei-Client-Walkie-Logs zeigten im Sechs-Sekunden-Takt gleichzeitige Neuaufbauten von Proximity- und Funk-Tap sowie Empfangsruckler.
