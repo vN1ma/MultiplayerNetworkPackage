@@ -18,9 +18,10 @@ namespace Earshot.Voice
     /// erzeugt und mit der Toggle-Taste (Default F7) ein-/ausgeblendet.
     /// </para>
     /// <para>
-    /// Bekannte Luecke, die das HUD bewusst sichtbar macht: der Walkie-Geraeteton
-    /// (<see cref="WalkieDeviceOutput"/>) daempft nach reiner Luftlinie und nutzt
-    /// den Graphen NICHT — siehe docs/OFFENE-PUNKTE.md.
+    /// v16.7: Der Walkie-Geraeteton (<see cref="WalkieDeviceOutput"/>) laeuft durch
+    /// denselben Welt-Messweg (Zonen, Tueren, Waende) wie die Stimme. Die Geraete-
+    /// Reichweite gilt auf dem LAUFWEG der Karte, nicht mehr auf der Luftlinie;
+    /// geschlossene Tueren/Waende daempfen und verdumpfen den Lautsprecher zusaetzlich.
     /// </para>
     /// </summary>
     [AddComponentMenu("Earshot Voice/Voice Graph Debug HUD")]
@@ -353,11 +354,11 @@ namespace Earshot.Voice
             string state = !walkie.PoweredOn
                 ? "aus"
                 : walkie.IsTransmitting ? "sendet" : "an";
-            text.Append("   <color=#ffaa00>ACHTUNG: Walkie (")
+            text.Append("   <color=#ffaa00>Walkie (")
                 .Append(state)
-                .Append(") daempft nach LUFTLINIE (MaxHearingDistance ")
+                .Append("): Geraetenton haengt in der Welt - Reichweite ")
                 .Append(walkie.MaxHearingDistance.ToString("0.0"))
-                .AppendLine(" m), NICHT nach Graph-Weg - siehe docs/OFFENE-PUNKTE.md</color>");
+                .AppendLine(" m gilt auf dem LAUFWEG oben, geschlossene Tueren/Waende daempfen zusaetzlich (v16.7). Ohne Zonen/Portale bleibt nur Occlusion auf der Luftlinie.</color>");
         }
 
         private void AddSegment(Vector3 from, Vector3 to, float openness)
