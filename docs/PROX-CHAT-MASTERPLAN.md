@@ -53,6 +53,24 @@
 - **L6 — Keine echte Beugung/Diffraction an Kanten, Reverb ist Mischwert, nicht geometrisch.**
   Das ist die Steam-Audio-Klasse — optional, siehe Phase 5.
 
+**Diagnose der Beobachtung „neben der offenen Tür wird es abrupt leiser":** Das ist der
+Occlusion-Fallback. Sobald der Graph greift, wird Occlusion buchstäblich übersprungen
+(`OcclusionModifier`: `if (context.UsedGraph) return;`) und die Lautstärke folgt dem Laufweg
+durch die offene Tür — kontinuierlich, ohne Abbruch. Dass es im Hörraum trotzdem abrupt war,
+heißt: dort war eine Bedingung nicht erfüllt (Flur/Außenwelt keine Zone, Portal-Seiten nicht
+aufgelöst, oder beide in derselben Zone). **Das F7-HUD zeigt ab jetzt live, welche Bedingung
+fehlte** (`UsedGraph?`, Zielzone, „KEIN WEG") — Phase 0 klärt das.
+
+**Fazit:** Das Fundament ist solide, performant und dem Standard entsprechender Ansätze —
+nicht wackelig. Was fehlt: Content-Authoring (L1) und vier gezielte Erweiterungen
+(L2–L5). Kein Neubau nötig.
+
+## 3. Architektur-Entscheidung
+
+Wir bleiben auf dem **Portal-Graph-Ansatz** (statt z. B. Steam Audio):
+multiplayer-freundlich (deterministisch, billig, pro Client identisch),
+voll tunbar, klein. Steam Audio nur falls Phase 5 einen konkreten Bedarf zeigt.
+
 ## 4. Roadmap
 
 ### Phase 0 — Verifikation & Diagnose (jetzt, ~1 Spielsession)
@@ -129,20 +147,3 @@
 - **D5:** Wann beginnt der Stockwerk-Generator (bestimmt, wann Phase 4 dran ist)?
 
 
-**Diagnose der Beobachtung „neben der offenen Tür wird es abrupt leiser":** Das ist der
-Occlusion-Fallback. Sobald der Graph greift, wird Occlusion buchstäblich übersprungen
-(`OcclusionModifier`: `if (context.UsedGraph) return;`) und die Lautstärke folgt dem Laufweg
-durch die offene Tür — kontinuierlich, ohne Abbruch. Dass es im Hörraum trotzdem abrupt war,
-heißt: dort war eine Bedingung nicht erfüllt (Flur/Außenwelt keine Zone, Portal-Seiten nicht
-aufgelöst, oder beide in derselben Zone). **Das F7-HUD zeigt ab jetzt live, welche Bedingung
-fehlte** (`UsedGraph?`, Zielzone, „KEIN WEG") — Phase 0 klärt das.
-
-**Fazit:** Das Fundament ist solide, performant und dem Standard entsprechender Ansätze —
-nicht wackelig. Was fehlt: Content-Authoring (L1) und vier gezielte Erweiterungen
-(L2–L5). Kein Neubau nötig.
-
-## 3. Architektur-Entscheidung
-
-Wir bleiben auf dem **Portal-Graph-Ansatz** (statt z. B. Steam Audio):
-multiplayer-freundlich (deterministisch, billig, pro Client identisch),
-voll tunbar, klein. Steam Audio nur falls Phase 5 einen konkreten Bedarf zeigt.
