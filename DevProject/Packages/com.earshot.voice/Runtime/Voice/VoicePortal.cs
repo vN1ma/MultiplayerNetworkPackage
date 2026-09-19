@@ -45,6 +45,16 @@ namespace Earshot.Voice
         [Tooltip("Wie viel Lautstaerke bei vollstaendig geschlossener Oeffnung noch durchdringt. 0 ergibt einen harten Cutoff.")]
         private float closedVolume = 0.15f;
 
+        [Header("Explizite Zonen (optional)")]
+
+        [SerializeField]
+        [Tooltip("Optional: Zone auf der Vorderseite. Beide Felder gesetzt = die Achsen-Probe wird umgangen und genau diese beiden Zonen verbunden - egal wie weit sie auseinander liegen. Noetig fuer Bruecken (z.B. Teleport-Tueren) und unguenstige Geometrie.")]
+        private VoiceZone zoneA;
+
+        [SerializeField]
+        [Tooltip("Optional: Zone auf der Rueckseite. Beide Felder gesetzt = die Achsen-Probe wird umgangen.")]
+        private VoiceZone zoneB;
+
         public VoicePortalKind Kind => kind;
         public float TravelLength => travelLength;
         public bool HasTravelLength => travelLength > 0.01f;
@@ -64,6 +74,37 @@ namespace Earshot.Voice
             VoiceGraph.MarkDirty();
         }
 
+        /// <summary>
+        /// Wahr, wenn beide Zonen per Hand zugewiesen sind. Dann umgeht das Portal die
+        /// geometrische Seiten-Probe und verbindet genau diese beiden Raeume - auch wenn
+        /// sie weit auseinander liegen (Bruecke, z.B. Teleport-Tuer). Fuer die
+        /// akustische Laenge einer Bruecke <see cref="SetTravelLength"/> setzen, sonst
+        /// zaehlt die geometrische Distanz der Zonenzentren.
+        /// </summary>
+        public bool HasExplicitZones => zoneA != null && zoneB != null && zoneA != zoneB;
+
+        public VoiceZone ZoneA => zoneA;
+        public VoiceZone ZoneB => zoneB;
+
+        /// <summary>Verkabelt eine Bruecke zwischen zwei Zonen (Authoring-/Generator-API).</summary>
+        public void SetExplicitZones(VoiceZone a, VoiceZone b)
+        {
+            if (a == null || b == null || a == b) return;
+            if (zoneA == a && zoneB == b) return;
+            zoneA = a;
+            zoneB = b;
+            VoiceGraph.MarkDirty();
+        }
+
+        /// <summary>Zurueck auf die automatische Achsen-Probe (Authoring-/Generator-API).</summary>
+        public void ClearExplicitZones()
+        {
+            if (zoneA == null && zoneB == null) return;
+            zoneA = null;
+            zoneB = null;
+            VoiceGraph.MarkDirty();
+        }
+
         /// <summary>Akustischer Oeffnungsgrad von 0 bis 1.</summary>
         public float Openness
         {
@@ -73,7 +114,9 @@ namespace Earshot.Voice
                 float clamped = Mathf.Clamp01(value);
                 if (Mathf.Abs(clamped - openness) < 0.001f) return;
                 openness = clamped;
-                VoiceGraph.MarkDirty();
+                // Reine Offenheits-Aenderung: keine Struktur-Aenderung, also kein
+                // Szenen-Scan - der Graph zieht nur die Kantengewichte nach (L5).
+                VoiceGraph.MarkOpennessDirty();
             }
         }
 

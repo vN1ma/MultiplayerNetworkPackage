@@ -21,18 +21,25 @@ namespace Earshot.Voice
 
         public readonly struct Connection
         {
-            public Connection(VoiceZone a, VoiceZone b, VoicePortal portal, float weight)
+            public Connection(VoiceZone a, VoiceZone b, VoicePortal portal, float weight, float length)
             {
                 A = a;
                 B = b;
                 Portal = portal;
                 Weight = weight;
+                Length = length;
             }
 
             public VoiceZone A { get; }
             public VoiceZone B { get; }
             public VoicePortal Portal { get; }
             public float Weight { get; }
+
+            /// <summary>
+            /// Kantenlaenge ohne Offenheits-Aufschlag. Basis fuer das inkrementelle
+            /// Nachziehen der Gewichte bei Offenheits-Aenderungen (L5).
+            /// </summary>
+            public float Length { get; }
         }
 
         public readonly struct DebugPath
@@ -66,6 +73,7 @@ namespace Earshot.Voice
         private static readonly List<Vector3> debugWaypoints = new List<Vector3>(8);
         private static DebugPath lastPath;
         private static bool dirty = true;
+        private static bool opennessDirty;
         private static int nodeCount;
 
         public static int NodeCount => nodeCount;
@@ -78,15 +86,34 @@ namespace Earshot.Voice
             dirty = true;
         }
 
+        /// <summary>
+        /// Reine Offenheits-Aenderung (Tuer bewegt sich): Die Struktur bleibt unangetastet,
+        /// nur die Kantengewichte ziehen beim naechsten Zugriff nach. Kein Szenen-Scan,
+        /// keine Zonen-Probes - das passiert pro Tuer-Schwingung mehrmals pro Sekunde (L5).
+        /// </summary>
+        public static void MarkOpennessDirty()
+        {
+            opennessDirty = true;
+        }
+
         public static void RebuildIfNeeded()
         {
-            if (!dirty) return;
-            Rebuild();
+            if (dirty)
+            {
+                Rebuild();
+                return;
+            }
+
+            if (opennessDirty)
+            {
+                UpdateOpennessWeights();
+            }
         }
 
         public static void Rebuild()
         {
             dirty = false;
+            opennessDirty = false;
             search.Clear();
             portalsByKey.Clear();
             connections.Clear();
@@ -120,16 +147,56 @@ namespace Earshot.Voice
                 portalsByKey[key] = portal;
 
                 float length = EdgeLength(a, b, portal) + OpeningPenalty(portal);
-                float closed = 1f - portal.Openness;
-                float weight = length + closed * ClosedLengthPenalty;
-                if (portal.Openness >= OpennessCheapThreshold)
-                {
-                    weight = length;
-                }
+                float weight = ComputeWeight(portal, length);
 
                 search.AddUndirectedEdge(a.GetInstanceID(), b.GetInstanceID(), weight, key);
-                connections.Add(new Connection(a, b, portal, weight));
+                connections.Add(new Connection(a, b, portal, weight, length));
             }
+        }
+
+        private static float ComputeWeight(VoicePortal portal, float length)
+        {
+            if (portal == null || portal.Openness >= OpennessCheapThreshold)
+            {
+                return length;
+            }
+
+            return length + (1f - portal.Openness) * ClosedLengthPenalty;
+        }
+
+        private static readonly Dictionary<int, float> weightScratch =
+            new Dictionary<int, float>(32);
+
+        /// <summary>
+        /// Aktualisiert nach reinen Offenheits-Aenderungen nur die Kantengewichte -
+        /// Struktur, Knoten und Probes bleiben unberuehrt. Ist eine Referenz inzwischen
+        /// gestorben (Tuer zerstoert, Zone geloescht), wird der volle Rebuild angefordert:
+        /// Dieser schnelle Pfad bleibt bewusst duemmlich und dadurch korrekt.
+        /// </summary>
+        private static void UpdateOpennessWeights()
+        {
+            opennessDirty = false;
+            weightScratch.Clear();
+
+            for (int i = 0; i < connections.Count; i++)
+            {
+                var link = connections[i];
+                if (link.Portal == null || link.A == null || link.B == null)
+                {
+                    dirty = true;
+                    return;
+                }
+
+                float weight = ComputeWeight(link.Portal, link.Length);
+                if (!Mathf.Approximately(weight, link.Weight))
+                {
+                    connections[i] = new Connection(link.A, link.B, link.Portal, weight, link.Length);
+                }
+
+                weightScratch[link.Portal.GetInstanceID()] = weight;
+            }
+
+            search.UpdateEdgeWeights(weightScratch);
         }
 
         /// <summary>
@@ -230,6 +297,10 @@ namespace Earshot.Voice
             {
                 var portal = portals[i];
                 if (portal == null) continue;
+                if ((portal.ZoneA != null) != (portal.ZoneB != null))
+                {
+                    warnings.Add("Portal mit nur einer expliziten Zone: " + portal.name);
+                }
                 if (!TryResolveSides(portal, out var a, out var b) || a == b)
                 {
                     warnings.Add("Portal ohne zwei Zonen: " + portal.name);
@@ -253,6 +324,15 @@ namespace Earshot.Voice
             a = null;
             b = null;
             if (portal == null) return false;
+
+            // Explizite Zuweisung schlaegt die Geometrie: Eine Bruecke verbindet Zonen,
+            // die nirgends nebeneinander liegen (z.B. Teleport-Tuer, E4/L4).
+            if (portal.HasExplicitZones)
+            {
+                a = portal.ZoneA;
+                b = portal.ZoneB;
+                return true;
+            }
 
             Vector3 center = PortalCenter(portal);
 

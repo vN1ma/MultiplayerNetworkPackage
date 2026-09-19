@@ -33,6 +33,27 @@ namespace Earshot.Voice
             adjacency[b].Add(new VoiceGraphEdge(a, weight, portalKey));
         }
 
+        /// <summary>
+        /// Zieht Kantengewichte nach, ohne den Graphen neu zu bauen. Offenheits-
+        /// Aenderungen (Tuer schwingt) duerfen keine Strukturarbeit ausloesen -
+        /// sie laufen mehrmals pro Sekunde pro Tuer (L5).
+        /// </summary>
+        public void UpdateEdgeWeights(IReadOnlyDictionary<int, float> weightsByPortal)
+        {
+            if (weightsByPortal == null || weightsByPortal.Count == 0) return;
+
+            foreach (var pair in adjacency)
+            {
+                var edges = pair.Value;
+                for (int i = 0; i < edges.Count; i++)
+                {
+                    if (!weightsByPortal.TryGetValue(edges[i].PortalKey, out float weight)) continue;
+                    if (weight == edges[i].Weight) continue;
+                    edges[i] = new VoiceGraphEdge(edges[i].To, weight, edges[i].PortalKey);
+                }
+            }
+        }
+
         public bool TryFindPath(int start, int goal, List<int> portalKeys, out float cost)
         {
             portalKeys.Clear();
