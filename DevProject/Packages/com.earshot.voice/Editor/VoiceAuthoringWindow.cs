@@ -56,6 +56,19 @@ namespace Earshot.Voice.Editor
             HearingTestSceneBuilder.Create();
         }
 
+        /// <summary>
+        /// EditorGUILayout.LayerMaskField ist intern (nicht oeffentlich). Der
+        /// bekannte Workaround: MaskField mit Layer-Namen plus Konvertierung
+        /// ueber InternalEditorUtility.
+        /// </summary>
+        private static LayerMask LayerMaskField(string label, LayerMask mask)
+        {
+            string[] layers = InternalEditorUtility.layers;
+            string[] selected = InternalEditorUtility.LayerMaskToLayers(mask);
+            string[] newSelected = EditorGUILayout.MaskField(label, selected, layers);
+            return InternalEditorUtility.LayersToMask(newSelected);
+        }
+
         private void OnGUI()
         {
             EditorGUILayout.HelpBox(
@@ -65,7 +78,7 @@ namespace Earshot.Voice.Editor
                 "wird nicht angefasst. Tueren verkabelt das Hotelszenen-Tool.",
                 MessageType.Info);
 
-            probeMask = EditorGUILayout.LayerMaskField("Sondierungs-Layer", probeMask);
+            probeMask = LayerMaskField("Sondierungs-Layer", probeMask);
             maxProbeDistance = EditorGUILayout.Slider(
                 "Max-Raycast (m)", maxProbeDistance, 1f, 100f);
             wallInset = EditorGUILayout.Slider(
