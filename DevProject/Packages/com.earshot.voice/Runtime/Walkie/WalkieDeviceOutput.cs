@@ -378,14 +378,24 @@ namespace Earshot.Voice
 
             // Kein bekannter Zuhoerer-Ort: lieber still als versehentlich auf voller
             // Lautstaerke senden (frueher wurde hier faelschlich 1f/volle Lautstaerke
-            // zurueckgegeben).
-            if (!active || !TryListenerPosition(out Vector3 listenerPos))
+            // zurueckgegeben). Gilt auch fuer inaktive Geraete - die Diagnose-Begruendung
+            // (NO_LISTENER vs. NO_REMOTE_WINNER/HALF_DUPLEX) braucht die Distanz immer.
+            if (!TryListenerPosition(out Vector3 listenerPos))
             {
                 return 0f;
             }
 
             listener = listenerPos;
             listenerDistance = Vector3.Distance(listenerPos, transform.position);
+
+            // Ohne aktiven Pfad gilt weiter die Luftlinie - die Welt-Auswertung
+            // (Raycasts, Graph) lohnt sich nur fuer Geraete, die tatsaechlich Ton geben.
+            pathDistance = listenerDistance;
+
+            if (!active)
+            {
+                return 0f;
+            }
 
             var settings = EarshotVoiceSettings.Instance;
             var profile = settings != null ? settings.VoiceProfile : null;
