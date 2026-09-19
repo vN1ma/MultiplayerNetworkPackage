@@ -12,7 +12,7 @@ namespace Earshot.Voice
     [AddComponentMenu("")]
     internal sealed class WalkieSidetoneCapture : MonoBehaviour
     {
-        private const string DiagnosticRevision = "leak-hunt-v16.3";
+        private const string DiagnosticRevision = "leak-hunt-v16.4";
 
         private VivoxCaptureSourceTap captureTap;
         private WalkieVivoxCaptureFeed feed;
@@ -723,10 +723,12 @@ namespace Earshot.Voice
                     : "WALKIE DIAGNOSE F11: Sidetone-Datenfluss wieder freigegeben.");
             }
 
-            // v15: F12 stellt den GESAMTEN Unity-Mix stumm (AudioListener-Master).
-            // Bleibt die Stimme bei gehaltener Sendetaste trotzdem hoerbar, kommt
-            // sie nachweislich NICHT aus dem Unity-Prozess - die Gegenprobe zur
-            // F8-Umleitung (Vivox) und zum Master-Mix-Peak in den FLOW-Zeilen.
+            // v16.4: F12 stellt den GESAMTEN Unity-Mix stumm (AudioListener-Master).
+            // Seit dem Root-Cause-Fix wird der Master zusaetzlich in
+            // WalkieDeviceOutput.OnAudioFilterRead multipliziert (Unity zieht
+            // Volume VOR dem Filter ab; das Ueberschreiben von data umging ihn -
+            // Leak-Beweis Log 20260919-090425). Bleibt die Stimme jetzt trotzdem
+            // hoerbar, kommt sie wirklich ausserhalb von Unity (OS/Parsec/VB-Cable).
             if (Input.GetKeyDown(KeyCode.F12))
             {
                 diagnosticMasterMuted = !diagnosticMasterMuted;
@@ -737,10 +739,11 @@ namespace Earshot.Voice
                     AudioListener.volume = 0f;
                     VoiceSessionLog.Alert(
                         "WALKIE DIAGNOSE F12: Unity-GESAMTAUSGABE STUMM (AudioListener-Master=0, " +
-                        "zuvor " + diagnosticMasterVolumeBefore.ToString("0.000") + "). Hoerst du " +
-                        "deine Stimme bei gehaltener Sendetaste TROTZDEM, kommt sie garantiert " +
-                        "NICHT aus Unity - nicht aus den Walkies, nicht aus dem Tap, nicht aus " +
-                        "irgendeiner Quelle des Spiels. Nochmal F12 stellt alles wieder her.");
+                        "zuvor " + diagnosticMasterVolumeBefore.ToString("0.000") + "). Seit v16.4 " +
+                        "greift das AUCH fuer die Walkie-Lautsprecher (Filter multipliziert den " +
+                        "Master mit). Hoerst du deine Stimme bei gehaltener Sendetaste TROTZDEM, " +
+                        "kommt sie ausserhalb von Unity (OS-Seite/Parsec/VB-Cable). Nochmal F12 " +
+                        "stellt alles wieder her.");
                 }
                 else
                 {

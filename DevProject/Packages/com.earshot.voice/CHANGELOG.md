@@ -6,6 +6,20 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+### Behoben
+
+- Sidetone-Leak (Selbsthoerung bei PTT ueberall gleich laut, distanz- und volumen-
+  unabhaengig): `WalkieDeviceOutput.OnAudioFilterRead` ueberschrieb `data` mit den
+  Delay-Ring-Samples in vollem Pegel. Unity wendet `AudioSource.volume`/`.mute` und
+  `AudioListener.volume` VOR `OnAudioFilterRead` auf den Datenstrom an - das
+  Ueberschreiben umging damit saemtliche Lautstaerkeregeln (Distanz-Falloff,
+  OWN_DEVICE_TX, OUT_OF_RANGE, AudioListener-Master). Die effektive Lautstaerke wird
+  jetzt autoritativ im Filter multipliziert (`smoothedVolume * GlobalListenerVolume`),
+  `source.volume` bleibt konstant 1, und der AudioListener-Master wird zusaetzlich
+  gespiegelt, damit globale Stummschaltung auch fuer Walkie-Lautsprecher greift.
+  Behebt zugleich die bisher volumen-immune Distanzdaempfung von Remote-Funk-Stimmen
+  an Geraeten (Beweis: Log 20260919-090425, Abschnitt 18 der Debug-Historie).
+
 ### Hinzugefuegt
 
 - `EarshotWalkieTalkie.SetLocalOwnership(bool)` + `IsLocallyOwned`: schuetzt `SetTransmitting`

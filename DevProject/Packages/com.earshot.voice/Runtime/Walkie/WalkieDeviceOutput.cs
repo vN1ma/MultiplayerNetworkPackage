@@ -4,6 +4,13 @@ namespace Earshot.Voice
 {
     /// <summary>
     /// Lautsprecher an einem Walkie: Remote-Gewinner oder lokales Sidetone, mit Delay.
+    /// v16.4: Die effektive Lautstaerke wird IM OnAudioFilterRead multipliziert.
+    /// Unity zieht AudioSource.volume und AudioListener.volume VOR OnAudioFilterRead
+    /// vom Datenstrom ab - wer dort data komplett UEBERSCHREIBT, umgeht saemtliche
+    /// Lautstaerkeregeln (Leak-Beweis Log 20260919-090425: Sidetone in vollem Pegel
+    /// im Master bei listenerVol=0 und allen device-vol=0, abhaengig allein vom Feed).
+    /// Deshalb bleibt source.volume konstant 1 und smoothedVolume + gespiegelter
+    /// Listener-Master werden im Filter durchgesetzt.
     /// <para>
     /// Wichtig: <see cref="OnAudioFilterRead"/> laeuft auf dem Audio-Thread —
     /// dort kein <c>AudioSettings</c>, keine Allokationen, keine Unity-API.
@@ -53,6 +60,15 @@ namespace Earshot.Voice
 
         private float[] monoPullBuffer = new float[2048];
         private float smoothedVolume;
+
+        // v16.4: AudioListener.volume wird von Unity VOR OnAudioFilterRead
+        // abgezogen und kann durch das Ueberschreiben von data umgangen werden
+        // (Leak-Beweis Log 20260919-090425: Sprache im Master bei Master=0).
+        // Der Master-Pegel wird deshalb im Main-Thread gespiegelt und im
+        // OnAudioFilterRead multiplikativ durchgesetzt - so greift die
+        // F12-Diagnose (und jede kuenftige globale Stummschaltung) auch fuer
+        // die Walkie-Lautsprecher.
+        internal static volatile float GlobalListenerVolume = 1f;
         private float radioCrunch;
         private string lastDiagnosticState;
         private float nextActiveDiagnostic;
@@ -146,6 +162,19 @@ namespace Earshot.Voice
             }
         }
 
+        private void CacheListenerVolume()
+        {
+            try
+            {
+                float v = AudioListener.volume;
+                if (v >= 0f && v <= 1f) GlobalListenerVolume = v;
+            }
+            catch
+            {
+                // Kein Listener in der Szene - letzter Spiegelwert bleibt.
+            }
+        }
+
         private void EnsureAudio()
         {
             if (source == null)
@@ -164,7 +193,9 @@ namespace Earshot.Voice
             source.minDistance = 0.4f;
             source.maxDistance = 50f;
             source.mute = false;
-            source.volume = 0f;
+            // v16.4: konstant 1 - die Regelung laeuft autoritativ im
+            // OnAudioFilterRead (smoothedVolume * GlobalListenerVolume).
+            source.volume = 1f;
 
             if (lowPass == null)
             {
@@ -246,7 +277,12 @@ namespace Earshot.Voice
                 smoothedVolume,
                 targetVolume,
                 Time.unscaledDeltaTime * VolumeSmoothPerSecond);
-            source.volume = smoothedVolume;
+
+            // v16.4: Unity-Volume bleibt konstant 1 (Regelung im Filter,
+            // keine Doppel-Daempfung); zusaetzlich den Listener-Master
+            // fuer den Filter spiegeln (F12-Diagnose).
+            source.volume = 1f;
+            CacheListenerVolume();
 
             ReportOutputDiagnostic(
                 active,
@@ -346,7 +382,7 @@ namespace Earshot.Voice
                 $"WALKIE OUTPUT {(audible ? "AN" : "AUS")}: device='{walkie.gameObject.name}', " +
                 $"channel='{walkie.ChannelId}', mode={mode}, stream='{stream}', reason={reason}, " +
                 $"distance={distanceText}/{walkie.MaxHearingDistance:0.00}m, falloff={falloff:0.000}, " +
-                $"target={targetVolume:0.000}, actual={source.volume:0.000}, " +
+                $"target={targetVolume:0.000}, actual={smoothedVolume:0.000}, master={GlobalListenerVolume:0.000}, " +
                 $"listener={listenerPosition.ToString("F2")}, speaker={transform.position.ToString("F2")}, " +
                 $"listeners={listenerCount}, HP={walkie.HighPassHz:0}Hz, LP={walkie.LowPassHz:0}Hz, " +
                 $"crunch={walkie.RadioCrunch:0.00}, delay={walkie.TransmissionDelaySeconds:0.000}s");
@@ -452,6 +488,17 @@ namespace Earshot.Voice
                 if (delaySamples < 1) delaySamples = 1;
                 if (delaySamples > delayRing.Length) delaySamples = delayRing.Length;
 
+                // v16.4 (ROOT-CAUSE-FIX): Die finale Lautstaerke hier im Filter
+                // durchsetzen. Unity wendet AudioSource.volume und
+                // AudioListener.volume VOR OnAudioFilterRead an; das komplette
+                // Ueberschreiben von data mit den Ring-Samples umging beide -
+                // dadurch spielte der Sidetone/Remote-Ton in VOLLEM Pegel von
+                // jedem Geraet im Kanal, unabhaengig von Distanz, OWN_DEVICE_TX,
+                // OUT_OF_RANGE und F12 (Leak-Beweis Log 20260919-090425).
+                float outputVolume = smoothedVolume * GlobalListenerVolume;
+                if (outputVolume < 0f) outputVolume = 0f;
+                if (outputVolume > 1f) outputVolume = 1f;
+
                 // Puffer kontinuierlich weiterschieben — nie fruehzeitig abbrechen,
                 // sonst entsteht am naechsten Aufruf ein hoerbarer Sprung (Klacken).
                 for (int f = 0; f < frames; f++)
@@ -469,7 +516,7 @@ namespace Earshot.Voice
                         delayPrimed = true;
                     }
 
-                    outgoing = ApplyRadioCrunch(outgoing, radioCrunch);
+                    outgoing = ApplyRadioCrunch(outgoing, radioCrunch) * outputVolume;
 
                     int baseIdx = f * ch;
                     for (int c = 0; c < ch; c++) data[baseIdx + c] = outgoing;

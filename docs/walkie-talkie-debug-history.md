@@ -740,4 +740,41 @@ Architektur-Klarheit (SDK-Quellcode `com.unity.services.vivox@16.10.0` gelesen):
 
 ---
 
+## 18. v16.3 — ROOT CAUSE BEWIESEN: OnAudioFilterRead-Injektion in `WalkieDeviceOutput` umgeht sämtliche Unity-Lautstärkeregeln; Fix v16.4 (2026-09-19, 09:04–09:06)
+
+**Nutzer-Test v16.3 (Log `voice-20260919-090425-727`, pid20120, `revision='leak-hunt-v16.3'` ✓), 4 Szenarien mit durchgehendem Sprechen:**
+
+| Szenario | Höreindruck | Log-Beweis (FLOW, 1 Hz) |
+|---|---|---|
+| Normal | Selbsthörung | `masterPeak` sprachkorreliert (0,04–0,11) |
+| F11 (Feed-Block) | KEINE Selbsthörung | `feedBlocked=True`, `micPeak=0,11–0,37` (Sprachnachweis ✓), `masterPeak=0,005–0,010` ≈ Hintergrund, keine Sprache |
+| F12 (Master=0) | NUR Stimme, kein Hintergrund | `listenerVol=0,000` ABER `masterPeak=0,016–0,065` sprachkorreliert; Hintergrund ≈ 0 |
+| F11+F12 | komplett stumm | `masterPeak≈0,000001` |
+
+**Rückblicks-Korrektur:** Auch das v16-Log (070355) zeigt in 1-Hz-Abtastung `07:04:40.313 masterPeak=0,046328` bei `listenerVol=0` — die frühere Lesart „masterPeak≈0 bei F12 ⇒ Leak nicht aus Unity" (v15/v16) war ein Sampling-Artefakt: die VIVOX-RX-Zeilen (2-s-Takt) trafen meist Sprechpausen. Diese Schlussfolgerung war falsch und wird hiermit zurückgenommen.
+
+**Position während des Tests:** Nutzer 0,99 m am eigenen Gerät (`reason=OWN_DEVICE_TX, target=0,000`), zweites Gerät 61–126 m (`OUT_OF_RANGE, target=0,000`) — alle sichtbaren Quellen vol=0, kein `OUTPUT AN`. **Der offene Session-1-Widerspruch („hörbar trotz vol=0 überall") ist damit aufgeklärt: kein Widerspruch, sondern der Leak selbst.**
+
+**Root Cause:** `WalkieDeviceOutput.OnAudioFilterRead` überschreibt `data` vollständig mit den Delay-Ring-Samples in vollem Pegel (`data[baseIdx+c]=outgoing`). Unity wendet `AudioSource.volume`/`.mute` und `AudioListener.volume` VOR `OnAudioFilterRead` auf den Datenstrom an (v12-Beweis: Tap-Filter-Input war bei volume=0 genullt) — wer `data` überschreibt, umgeht damit ALLE Lautstärkeregeln. Konsequenzen:
+
+- Sidetone (und genauso Remote-Funk-Audio!) spielte von JEDEM eingeschalteten, nicht sendenden Gerät im Kanal in vollem Pegel — unabhängig von Distanz (120 m!), `OWN_DEVICE_TX`, `OUT_OF_RANGE` und F12.
+- `PushSamples` hat kein Distanz-Gate; die Distanzregel lief allein über `source.volume` — die wirkungslos war. F11 war der einzige wirksame Kill-Schalter, weil der Ring dann leer bleibt.
+- Die Distanz-Dämpfung von Remote-Funk-Stimmen an Walkie-Geräten war über dieselbe Injektion ebenfalls volumen-immun (Nebenbefund, durch den Fix mitbehandelt).
+
+**Fix v16.4 (`WalkieDeviceOutput.cs`, Revision `leak-hunt-v16.4`):**
+
+1. `OnAudioFilterRead` multipliziert jetzt `outgoing * outputVolume` mit `outputVolume = smoothedVolume * GlobalListenerVolume` (auf 0..1 geclampt) — die Lautstärke wird autoritativ im Filter durchgesetzt, unabhängig davon, an welcher DSP-Stage Unity Volume anwendet.
+2. `source.volume` bleibt konstant 1 (EnsureAudio + LateUpdate) — verhindert Doppel-Dämpfung.
+3. Neuer statischer Spiegel `WalkieDeviceOutput.GlobalListenerVolume` (volatile), pro LateUpdate aus `AudioListener.volume` gecacht — F12 (und jede künftige globale Stummschaltung) greift damit auch für die Walkie-Lautsprecher.
+4. OUTPUT-Diagnosezeile loggt jetzt `actual=smoothedVolume` + `master=` (source.volume ist konstant 1 und wäre aussagelos).
+
+**Testprotokoll v16.4 (im Spiel; Log muss `revision='leak-hunt-v16.4'` zeigen):**
+
+1. PTT + Sprechen in >8 m Abstand zu allen anderen Walkies → KEINE Selbsthörung mehr; Gegenprobe <8 m am zweiten Gerät → Selbsthörung MIT Distanz-Falloff (deutlich leiser als zuvor).
+2. F12 während PTT + Sprechen → jetzt KOMPLETT stumm (auch die eigene Stimme). Falls nicht: verbleibender Pfad ist OS-/Parsec-/VB-Cable-Seite.
+3. Remote-Test (2. Client): Distanz-Dämpfung der Funk-Stimme prüfen (nah laut, fern leise, >8 m stumm) — durch den Fix erstmals tatsächlich wirksam.
+4. Editor.log „Invalid parameter" weiter beobachten (sollte bei 37 bleiben).
+
+---
+
 *Dokument angelegt 2026-09-18. Bei jedem weiteren gescheiterten oder erfolgreichen Ansatz: hier einen kurzen Abschnitt ergänzen (Datum, Symptom, Hypothese, Fix, Log-Beweis, Ergebnis), nicht nur CHANGELOG-Zeilen.*
