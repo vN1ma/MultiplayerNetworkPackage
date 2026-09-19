@@ -17,9 +17,6 @@
     "com.unity.services.authentication": "3.6.0",
     "com.unity.services.vivox": "16.10.0"
   },
-  "testables": [
-    "Earshot.Voice.Tests.EditMode"
-  ],
   "samples": [
     {
       "displayName": "Custom Voice Modifier",

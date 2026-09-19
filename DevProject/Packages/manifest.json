@@ -9,5 +9,8 @@
     "com.unity.modules.physics": "1.0.0",
     "com.unity.modules.uielements": "1.0.0",
     "com.unity.modules.unitywebrequest": "1.0.0"
-  }
+  },
+  "testables": [
+    "com.earshot.voice"
+  ]
 }
