@@ -12,7 +12,7 @@ namespace Earshot.Voice
     [AddComponentMenu("")]
     internal sealed class WalkieSidetoneCapture : MonoBehaviour
     {
-        private const string DiagnosticRevision = "leak-hunt-v16";
+        private const string DiagnosticRevision = "leak-hunt-v16.2";
 
         private VivoxCaptureSourceTap captureTap;
         private WalkieVivoxCaptureFeed feed;
@@ -59,6 +59,11 @@ namespace Earshot.Voice
         private readonly List<string> proxParticipantScratch = new List<string>(4);
         private readonly List<string> radioParticipantScratch = new List<string>(4);
         private readonly float[] rxRingBuffer = new float[9600];
+
+        // v16.2: Sonden-Lesebuffer in Clip-Groesse - Fix fuer die Out-of-
+        // Bounds-GetData-Lesung in ReadTapRingPeak (Details im Methoden-
+        // Kommentar). Wird pro Clip-Geometrie einmal allokiert (~3 s x Kanaele).
+        private float[] rxProbeBuffer;
 
         // VivoxAudioProcessor-Interna fuer die RX-Sonden (Reflektion, identisch
         // zu WalkieVivoxCaptureFeed — Feldnamen aus VivoxAudioProcessor.cs).
@@ -327,24 +332,35 @@ namespace Earshot.Voice
                 int channels = clip.channels > 0 ? clip.channels : 1;
                 if (totalFrames <= 0 || writePointer < 0) return -1f;
 
-                int readFrames = System.Math.Min(rxRingBuffer.Length / channels, totalFrames);
-                int startFrame = writePointer - readFrames;
-                if (startFrame < 0) startFrame += totalFrames;
-
-                int firstFrames = System.Math.Min(readFrames, totalFrames - startFrame);
-                float peak = 0f;
-                if (firstFrames > 0)
+                // v16.2-Fix: AudioClip.GetData fuellt IMMER den kompletten
+                // Buffer (data.Length) - firstFrames begrenzte frueher nur
+                // die Peak-Auswertung, nicht das Lesen selbst. Sobald das
+                // 0,2-s-Fenster ueber das Clip-Ende wrappte (frischer Tap,
+                // writePointer < Fenstergroesse), las GetData darueber hin-
+                // aus: Unity-native "SoundManager.cpp(815) m_Sound->lock ...
+                // invalid parameter" (Editor.log 2026-09-19, 37x) und unzu-
+                // verlaessliche funkRx/proxRx-Werte (Sonden blind). Sicherer
+                // Weg: EIN Lesevorgang ab Offset 0 mit Buffer in Clip-Groesse
+                // (immer in-bounds), der Peak wird danach im Speicher ueber
+                // die letzten 0,2 s vor dem Schreibcursor berechnet.
+                int totalSamples = totalFrames * channels;
+                if (rxProbeBuffer == null || rxProbeBuffer.Length != totalSamples)
                 {
-                    clip.GetData(rxRingBuffer, startFrame * channels);
-                    peak = AbsMax(rxRingBuffer, firstFrames * channels);
+                    rxProbeBuffer = new float[totalSamples];
                 }
 
-                int wrapFrames = readFrames - firstFrames;
-                if (wrapFrames > 0)
+                clip.GetData(rxProbeBuffer, 0);
+
+                int windowSamples = System.Math.Min(rxRingBuffer.Length, totalSamples);
+                int firstSample = writePointer * channels - windowSamples;
+                float peak = 0f;
+                for (int i = 0; i < windowSamples; i++)
                 {
-                    clip.GetData(rxRingBuffer, 0);
-                    float wrapPeak = AbsMax(rxRingBuffer, wrapFrames * channels);
-                    if (wrapPeak > peak) peak = wrapPeak;
+                    int index = firstSample + i;
+                    if (index < 0) index += totalSamples;
+                    float absolute = rxProbeBuffer[index];
+                    if (absolute < 0f) absolute = -absolute;
+                    if (absolute > peak) peak = absolute;
                 }
 
                 return peak;
@@ -353,18 +369,6 @@ namespace Earshot.Voice
             {
                 return -1f;
             }
-        }
-
-        private static float AbsMax(float[] data, int sampleCount)
-        {
-            float peak = 0f;
-            int limit = System.Math.Min(sampleCount, data.Length);
-            for (int i = 0; i < limit; i++)
-            {
-                float absolute = data[i] < 0f ? -data[i] : data[i];
-                if (absolute > peak) peak = absolute;
-            }
-            return peak;
         }
 
         private static void ResolveRxReflection()

@@ -677,4 +677,31 @@ Bleibt als letzte Messlücke: `GetOutputData` an AudioSources misst VOR `OnAudio
 
 ---
 
+## 16. v16.2 — Testergebnis v16: F12 reproduziert (Leak ist NICHT Unity); RX-Sonden waren blind (OOB-Bug gefixt); F11 nie ausgelöst (2026-09-19, ~07:30)
+
+**Ausgewertet: 4 Logs `voice-20260919-065653 / -065925 / -070213 / -070355` (pid20120, `revision='leak-hunt-v16'`).**
+
+Nutzer-Beobachtungen + Log-Beweise:
+
+1. **Normal:** Selbsthörung ✓ (erwartet).
+2. **F9 (dreimal, sauber geloggt, `sourceMute=True`):** Selbsthörung unverändert — ABER die FLOW-Zeilen zeigen während F9 `clipPeak≈0,002`, `signalBlocks=0` (Mute nullt die SDK-Daten, wie in v10 bewiesen). Der Sidetone-Datenfluss war also nahezu stumm, der Ton kam trotzdem → **nicht der Sidetone-/Buss-Pfad** (H2 endgültig tot).
+3. **F11: nie ausgelöst.** In allen 4 Logs fehlt jede `DIAGNOSE F11`-Zeile (F9/F12 sind geloggt). Die Nutzer-Beobachtung „F11: mich nicht mehr gehört“ stammt vermutlich aus einem Moment ohne gehaltene Sendetaste → **Datenpunkt verworfen**. F11 muss wiederholt werden (Log-Zeile prüfen!).
+4. **F12 (zweimal, sauber geloggt, 07:00:47 und 07:04:39):** `listenerVol=0,000`, `masterPeak=0,000028` — Unity nachweislich unhörbar stumm; die eigene Stimme blieb trotzdem hörbar (Hintergrund weg). → **Die v15-F12-Beobachtung ist reproduziert: Der Leak kommt NICHT aus dem Unity-Prozess. H3 tot.**
+5. **„Invalid parameter“-Fehler (Unity-Konsole; Editor.log 37× `SoundManager.cpp(815) m_Sound->lock`):** v16-RX-Sonden-Bug in `ReadTapRingPeak` — `AudioClip.GetData` füllt IMMER den kompletten Buffer (`data.Length`); `firstFrames` begrenzte nur die Peak-Auswertung, nicht das Lesen. Bei Ring-Wrap (frischer Tap, `writePointer < 9600`) las `GetData` über das Clip-Ende hinaus → nativer lock-Fehler + **unzuverlässige `funkRx`/`proxRx`=0-Werte (Sonden blind)** — deshalb konnte v16 nicht messen, ob die Engine die Eigen-Sendung empfängt. **Fix v16.2:** genau ein `GetData` ab Offset 0 mit Buffer in Clip-Größe (~3 s), Peak danach im Speicher über die letzten 0,2 s vor dem Schreibcursor; `AbsMax` entfällt.
+6. **Testdisziplin-Verstoß:** Heute stand der Nutzer 1–4 m neben Walkies (z. B. `WALKIE OUTPUT AN: mode=SIDETONE, reason=AUDIBLE, 3,77 m` → legitimer Sidetone-Nachbarschafts-Pfad MIT Funk-Effekt zusätzlich aktiv). Außerdem frische Tap-Rebuilds durch Kanal-Wechsel (TapId 1→6→16, Kanal-Hash wechselte je Session). Leak-Tests nur mit >20 m Abstand.
+7. **Geräte (bestätigt):** `input='Mikrofon (Parsec Virtual Audio)'`, Vivox-native Output = `'Lautsprecher (VB-Audio Virtual Cable)'`, `vivoxOutVol=0` (SDK-`OutputDeviceVolume` — interner Wert, offenbar ohne reale Wirkung, native Ausgabe blieb hörbar).
+
+**Bewertung:** Nach F12-Reproduktion (nicht Unity) + F9 (Daten≈0, Ton trotzdem da → nicht Sidetone) + Chrome-Test (kein OS-Loop) ist **H1 (Vivox-native spielt die eigene Sendung) die einzige verbliebene Erklärung**. Genau die Sonden, die H1 beweisen sollten, waren blind — jetzt gefixt. Das v16.1-Paradox ist aufgelöst: „Solo-Gruppenkanal kann nichts reflektieren“ war eine Annahme, keine Messung — die Messung war kaputt.
+
+**Testprotokoll v16.2 (im Spiel, remote machbar — Package im Spiel auf Commit `NACH DIESEM COMMIT` aktualisieren; Log muss `revision='leak-hunt-v16.2'` zeigen):**
+
+1. >20 m von allen Walkies entfernen, PTT halten, 10 s normal sprechen, loslassen. `VIVOX-RX`-Zeile prüfen (jetzt verlässlich):
+   - `funkRx>0` oder `proxRx>0` → **H1 bewiesen** (Engine empfängt die eigene Sendung zurück) → sofort F7 drücken (native stumm): Ton weg? → Dauer-Fix: `VivoxVoiceBackend.DiagnosticMuteVivoxNativeOutputOnLogin=true` aktivieren.
+   - beide `0`, Ton trotzdem hörbar → native Wiedergabe ohne Kanal-Echo (Capture-Monitoring der Engine?) → F7 entscheidet: Ton weg = native bestätigt, Kanal unschuldig.
+2. **F11 wiederholen** und die Log-Zeile `DIAGNOSE F11: ... BLOCKIERT` prüfen (nur dann ist der Test gültig): Ton weg?
+3. Auf die Unity-Konsole achten: Der „Invalid parameter“-Spam muss **WEG** sein. Falls weiterhin Spam: Quelle ist das SDK selbst (Stereo-`SetData` mit Frame-Offset in `VivoxAudioProcessor.cs:234`) → dann Sonden-Ergebnisse mit Vorsicht lesen.
+4. Ergebnis hier dokumentieren; bei F7-Positiv Auto-Mute-Flag aktivieren und Gegenprobe mit zweitem Client fahren (hören Remotes weiterhin?).
+
+---
+
 *Dokument angelegt 2026-09-18. Bei jedem weiteren gescheiterten oder erfolgreichen Ansatz: hier einen kurzen Abschnitt ergänzen (Datum, Symptom, Hypothese, Fix, Log-Beweis, Ergebnis), nicht nur CHANGELOG-Zeilen.*
