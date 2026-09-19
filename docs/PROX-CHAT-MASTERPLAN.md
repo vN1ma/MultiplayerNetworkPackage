@@ -80,14 +80,22 @@ voll tunbar, klein. Steam Audio nur falls Phase 5 einen konkreten Bedarf zeigt.
   OFFENE-PUNKTE dokumentieren und ggf. Szene korrigieren.
 - Im Hotel erwartungsgemäß „keine Zone / 0 Räume" — bestätigt L1.
 
-### Phase 1 — Graph-Infra erweitern (im Package)
-- **1a:** `VoicePortal`: optionale **explizite Zonen-Zuweisung** (Zone A/B Felder; überschreiben
-  die Achsen-Probe). Grundlage für Teleport-Brücken (E4) und für ungünstige Geometrie.
-- **1b:** **Inkrementelle Offenheit:** Struktur-Rebuild nur, wenn Zonen/Portale entstehen/verschwinden;
-  reine Offenheits-Änderung ohne Rebuild (Edge-Gewichte live).
-- **1c:** **WalkieDeviceOutput an den Graphen** (E3): Zone des Geräts ermitteln, Pfad zum Hörer,
-  gleiche Modifier-Kette wie die Stimme.
-- **1d:** Occlusion-Tuning im Profil (WallsUntilFullMuffle > 1, weichere Kurve) — nach F7-Tests.
+### Phase 1 — Graph-Infra erweitern (im Package) — 1a–1c umgesetzt (v16.7, 2026-09-19)
+- [x] **1a:** `VoicePortal`: optionale **explizite Zonen-Zuweisung** (Zone-A/B-Felder +
+  `SetExplicitZones`/`ClearExplicitZones` für Tool/Generator; überschreiben die Achsen-Probe).
+  Grundlage für Teleport-Brücken (E4) und für ungünstige Geometrie. Preflight meldet
+  „Portal mit nur einer expliziten Zone“.
+- [x] **1b:** **Inkrementelle Offenheit:** `Openness`-Setter löst nur `MarkOpennessDirty()`
+  aus — Struktur-Rebuild nur, wenn Zonen/Portale entstehen/verschwinden; reine
+  Offenheits-Änderung zieht nur die Kantengewichte nach (`Connection.Length` + `ComputeWeight`
+  + `VoiceGraphSearch.UpdateEdgeWeights`, ohne Szenen-Scan). Tote Referenzen → Full-Rebuild
+  als Sicherheitsnetz. EditMode-Tests für beide Richtungen (zu/öffnen) vorhanden.
+- [x] **1c:** **WalkieDeviceOutput an den Graphen** (E3): `VoicePipeline.EvaluateWorldAttenuation`
+  = Zone des Geräts, Pfad zum Hörer, gleiche Modifier-Kette wie die Stimme — ohne
+  Distanz-Modul (Reichweite = Geräteeigenschaft, Falloff auf Pfadlänge). Welt-Tiefpass
+  mischt sich log-geglättet unters Geräte-EQ; Walkie-Auswertungen überschreiben das
+  HUD-`LastPath` nicht (rememberPath=false).
+- [ ] **1d:** Occlusion-Tuning im Profil (WallsUntilFullMuffle > 1, weichere Kurve) — nach F7-Tests.
 
 ### Phase 2 — Authoring-Pipeline (Editor-Tool im HOTEL_GAME)
 > Wichtig zum Verständnis: **Editor-Authoring = einmalig, gespeichert in der Szene.**
