@@ -160,6 +160,13 @@ voll tunbar, klein. Steam Audio nur falls Phase 5 einen konkreten Bedarf zeigt.
   den Kollegen auf der anderen Seite noch; Dämpfungsverhalten analog zu normalen Türen).
   Ein Wert geändert → alle Theme-Türen verhalten sich beim nächsten Lauf gleich.
   Technisch möglich über Phase 1a; alle Ziele liegen nachweislich in derselben Szene.
+  **Jeder Themenraum hat 2 Türen** (Hoteltür rein + Raumtür zurück, so paired es
+  `FixedDoorManager` bereits): Beide bekommen je eine Brücke — das ergibt zwei Kanten
+  zwischen demselben Zonen-Paar, was im Graph völlig legitim ist (wie zwei Türen zwischen
+  denselben Räumen in echt). Dijkstra nimmt automatisch den besseren/offeneren Weg.
+  Statische Paarungen (FixedDoorManager, serialisiert) verkabelt das Editor-Tool;
+  dynamische Zuweisungen (RandomRoomAssigner, NetworkList) verkabelt der Laufzeit-Adapter
+  beim Assignment — auf allen Clients identisch, weil die NetworkList für alle lesbar ist.
 
 ### Phase 4 — Prozedurale/random Stockwerke (E5)
 - Der **Generator emittiert Zonen/Portale beim Bauen** — er kennt die Geometrie, die er gerade
@@ -209,5 +216,55 @@ erst wenn konkreter Bedarf.
   die Basis (Phase 1–3) steht.
 - **Spieleranzahl:** ausgelegt auf 4, erweiterbar auf 8 → Performance irrelevant
   (max. 56 Paarungen × < 1 ms).
+
+## 7. Kollaborations-Workflow (Freund baut Szene, ich baue Earshot)
+
+**Rollen:** Er liefert Layout, Türen, Räume. Ich liefere Package + Tool und führe die
+Audio-Authoring-Schritte aus. Marker setzen kann grundsätzlich jeder — es sind nur leere
+GameObjects, kein Spezialwissen nötig.
+
+**Was passiert automatisch, was nicht, wenn er die Szene pusht:**
+- **Gelöschte Tür → Portal automatisch weg.** `VoicePortal` + Adapter sitzen ALS KOMPONENTEN
+  auf seinem Tür-Objekt. Löscht er die Tür, sterben die Komponenten mit — nichts zu
+  entfernen, kein Leichnam übrig.
+- **Neue Tür → noch kein Portal.** Das Tool muss (oder der Validierungs-Button: sollte)
+  laufen. Deshalb: Nach jedem Pull seiner Szeneänderungen einmal **„Prüfen"** klicken —
+  das Tool listet: neue Türen ohne Portal, Portale ohne beide Seiten, Marker ohne Zone,
+  Zonen ohne Marker. Dann gezielt fixen (Buttons), nicht blind alles neu generieren.
+- **Geändertes Layout (Wand verschoben):** Zonen bleiben wie sie sind, bis der Marker-
+  Button erneut läuft → Zone wird aktualisiert. Der „Prüfen"-Lauf zeigt Überlappungen.
+- **Neuer Raum:** braucht einmal einen neuen Marker (Sekunden — kann auch er direkt beim
+  Bauen setzen, Namenskonvention siehe unten). Das ist bewusst so: Ein Punkt im Raum ist
+  Autoring-Entscheidung, kein Zufall.
+
+**Git-Hygiene bei Szenen-Änderungen:**
+- Alles Audio-Autoring liegt unter EINEM Wurzel-Container in der Hierarchy (kein Asset-
+  Ordner — Marker/Zonen sind Szenen-Objekte, keine Dateien). Regel für ihn: **nichts unter
+  `_EarshotAudioGraph` anfassen/verschieben**; Regel für mich: Tool-Ergebnisse zügig und
+  als eigener Commit pushen, damit Szenen-Merges klein bleiben.
+- Unity-Szenen sind YAML → Merge-Konflikte sind mühsam. Gegenmittel: kleine, getrennte
+  Commits + optional UnityYAMLMerge (Smart Merge) in der git config aktivieren.
+
+**Struktur & Namenskonvention in der Hierarchy:**
+```
+_EarshotAudioGraph                 (Wurzel-Container, vom Tool verwaltet)
+├── Markers                        (nur die Create-Empties, von Hand gesetzt)
+│   ├── ZoneMarker_Lobby
+│   ├── ZoneMarker_Flur_EG
+│   └── ZoneMarker_Zimmer101
+├── Zones                          (generiert, nie von Hand editieren)
+│   ├── AudioZone_Lobby
+│   └── AudioZone_Zimmer101
+└── ...
+```
+- Marker: `ZoneMarker_<Raumname>` — praegnante, stabile Namen (Zone bekommt den Namen vererbt).
+- Zones: `AudioZone_<Raumname>` — generiert aus dem Marker, gleicher Name = Update statt Duplikat.
+- Präfixe sind Teil des Vertrags mit dem Tool (Erkennung, Update, Entfernen).
+
+**Generator (Phase 4) braucht KEINE Marker:** Marker sind das Authoring-Mittel für
+statisch gebaute Inhalte. Der Stockwerk-Generator kennt die Räume, die er selbst erzeugt —
+er ruft die Factory-API direkt auf (`CreateZone(bounds, name)`, `LinkZones(a, b, …)`).
+Beide Wege münden in denselben `VoiceZone`/`VoicePortal`-Komponenten; der Graph
+unterscheidet nicht, woher sie kommen.
 
 
