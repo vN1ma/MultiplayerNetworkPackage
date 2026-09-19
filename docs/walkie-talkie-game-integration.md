@@ -177,6 +177,58 @@ Proximity-Chat bleibt unverändert: `EarshotProximityVoice` auf dem Player. Walk
 
 
 
+## Lautstärke & Reichweite — glasklar (Stand v16.4, 2026-09-19)
+
+**Das Wichtigste zuerst:** Seit dem v16.4-Fix wirken **alle Lautstärke- und Reichweiten-Einstellungen wieder wirklich hörbar** — inklusive `Max Hearing Distance`. Davor umging ein Bug sämtliche Lautstärkeregeln (Details unten). Im Spiel bestätigt: `Max Hearing Distance` an einem Walkie hochgestellt → sofort hörbarer Effekt.
+
+### Welche Stellschrauben es gibt (Multiplikationskette)
+
+```
+hörbare Lautstärke = Basis × Distanz-Falloff × Global × Listener-Master
+```
+
+| Stellschraube | Wo | Wirkung |
+|---|---|---|
+| **Basis** | `Radio Volume` (fremde Funk-Stimme) bzw. `ActiveSidetoneWorldVolume` (eigene Stimme als Sidetone an fremden Geräten) | Grundpegel 0–1 |
+| **Distanz-Falloff** | berechnet aus `Max Hearing Distance` | Formel unten |
+| **Global** | `EarshotVoice.HeardVoiceVolume` | szene-global für alle Walkies |
+| **Listener-Master** | `AudioListener.volume` (wird für den Filter gespiegelt) | z. B. F12-Diagnose |
+
+### Die Distanz-Formel
+
+```
+hörbar nur wenn  d < MaxHearingDistance
+falloff = (1 − d / MaxHearingDistance)²      mit d geklemmt auf mind. 0,9 m (Nahfeld-Deckel gegen Rückkopplung)
+```
+
+Beispiel `MaxHearingDistance = 8 m`:
+
+| Distanz | Falloff |
+|---|---|
+| 0,9–2 m | 0,56–1,00 |
+| 4 m | 0,25 |
+| 6 m | 0,06 |
+| 7,7 m | 0,001 |
+| ≥ 8 m | 0 (`OUT_OF_RANGE`) |
+
+**Wichtig beim Tuning:** `MaxHearingDistance` erhöhen vergrößert nicht nur die Reichweite, sondern macht den Ton **auch in mittleren Distanzen lauter** (weil `1 − d/max` steigt). Wer nur die Reichweite erweitern, die Nah-Lautstärke aber behalten will, senkt `Radio Volume` entsprechend mit.
+
+Zusätzliche Abschaltungen (Lautstärke 0, unabhängig von der Formel):
+
+- **OWN_DEVICE_TX** — das Gerät sendet gerade selbst → eigener Lautsprecher stumm (Half-Duplex).
+- **OUT_OF_RANGE** — Zuhörer weiter als `MaxHearingDistance` entfernt.
+- Kein bekannter Zuhörer-Ort → lieber still als versehentlich volle Lautstärke.
+
+### Warum das früher nicht wirkte (die goldene Regel)
+
+Der Walkie-Ton entsteht in `OnAudioFilterRead` (Delay-Ring + Radio Crunch) und **überschreibt** dabei `data` komplett. Unity wendet `AudioSource.volume`/`.mute` und `AudioListener.volume` aber **VOR** `OnAudioFilterRead` auf den Datenstrom an — wer dort `data` überschreibt, **umgeht alle Lautstärkeregeln**. Deshalb seit v16.4:
+
+1. Die Lautstärke wird **im Filter selbst** durchgesetzt: `outputVolume = smoothedVolume * GlobalListenerVolume` (geclampt 0–1).
+2. `source.volume` bleibt konstant 1, Unity-Rolloff konstant 1 — die Distanz rechnen wir selbst (sonst doppelt gedämpft).
+3. Der `AudioListener.volume`-Master wird zusätzlich gespiegelt, damit globale Stummschaltung auch für Walkie-Lautsprecher greift.
+
+> **Eiserne Regel für zukünftige Audio-Arbeit:** Wer in `OnAudioFilterRead` `data` überschreibt, muss jede gewünschte Lautstärke **selbst im Filter multiplizieren** — `AudioSource.volume`, `.mute` und `AudioListener.volume` wirken dann nicht mehr. (Beweis: Log `20260919-090425`, Debug-Historie Abschnitt 18.)
+
 ## Wo im Package der Code liegt
 
 ```

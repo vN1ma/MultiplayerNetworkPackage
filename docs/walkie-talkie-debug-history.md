@@ -775,6 +775,8 @@ Architektur-Klarheit (SDK-Quellcode `com.unity.services.vivox@16.10.0` gelesen):
 3. Remote-Test (2. Client): Distanz-Dämpfung der Funk-Stimme prüfen (nah laut, fern leise, >8 m stumm) — durch den Fix erstmals tatsächlich wirksam.
 4. Editor.log „Invalid parameter" weiter beobachten (sollte bei 37 bleiben).
 
+**Ergebnis (Nutzer-Test v16.4 im Spiel, 2026-09-19): BESTANDEN.** Nach Package-Update bestätigt der Nutzer: `MaxHearingDistance` an einem Walkie hochgestellt → **sofort hörbarer Effekt**. Die Reichweiten-/Falloff-Einstellung reagiert damit erstmals live auf das Tuning — vor dem Fix war der komplette `WalkieDeviceOutput`-Pfad volumen-immun, weshalb Reichweiten-Tuning nie hörbar wurde. Da die Leak-Selbsthörung denselben Code-Pfad nutzt, ist sie konsequent mitbehoben. Glasklar-Tuning-Doku (Formel, Stellschrauben, goldene OnAudioFilterRead-Regel) ergänzt in `docs/walkie-talkie-game-integration.md`. Offen: F12-Vollverifikation + Remote-2-Client-Distanztest (Protokollpunkte 2–3), Editor.log-Beobachtung (Punkt 4).
+
 ---
 
 *Dokument angelegt 2026-09-18. Bei jedem weiteren gescheiterten oder erfolgreichen Ansatz: hier einen kurzen Abschnitt ergänzen (Datum, Symptom, Hypothese, Fix, Log-Beweis, Ergebnis), nicht nur CHANGELOG-Zeilen.*
