@@ -12,7 +12,7 @@ namespace Earshot.Voice
     [AddComponentMenu("")]
     internal sealed class WalkieSidetoneCapture : MonoBehaviour
     {
-        private const string DiagnosticRevision = "leak-hunt-v16.2";
+        private const string DiagnosticRevision = "leak-hunt-v16.3";
 
         private VivoxCaptureSourceTap captureTap;
         private WalkieVivoxCaptureFeed feed;
@@ -64,6 +64,7 @@ namespace Earshot.Voice
         // Bounds-GetData-Lesung in ReadTapRingPeak (Details im Methoden-
         // Kommentar). Wird pro Clip-Geometrie einmal allokiert (~3 s x Kanaele).
         private float[] rxProbeBuffer;
+        private float[] micProbeBuffer;
 
         // VivoxAudioProcessor-Interna fuer die RX-Sonden (Reflektion, identisch
         // zu WalkieVivoxCaptureFeed — Feldnamen aus VivoxAudioProcessor.cs).
@@ -94,11 +95,16 @@ namespace Earshot.Voice
             HandleDiagnosticHotkeys();
 
             bool ready = captureTap != null && captureTap.TapId >= 0 && feed != null;
-            bool wanted = ready &&
-                          !diagnosticSidetoneBlocked &&
-                          WalkieTalkieRegistry.LocalIsTransmitting &&
-                          !string.IsNullOrEmpty(WalkieTalkieRegistry.LocalTransmitChannelId);
-            string channel = wanted
+            // v16.3: pttActive trennt "PTT + Tap bereit" vom diagnostischen
+            // Feed-Block (F11). FLOW-/Inventar-Logs laufen ab jetzt AUCH bei
+            // geblocktem Feed weiter - sonst ist ein F11-Fenster nachtraeglich
+            // nicht beweisbar (v16.2, Session 072827: waehrend beider F11-
+            // Fenster keine FLOW-Zeilen, Sprachnachweis fehlte komplett).
+            bool pttActive = ready &&
+                             WalkieTalkieRegistry.LocalIsTransmitting &&
+                             !string.IsNullOrEmpty(WalkieTalkieRegistry.LocalTransmitChannelId);
+            bool wanted = pttActive && !diagnosticSidetoneBlocked;
+            string channel = pttActive
                 ? WalkieTalkieRegistry.LocalTransmitChannelId
                 : null;
 
@@ -131,14 +137,15 @@ namespace Earshot.Voice
                     $"outputRate={SafeOutputSampleRate()} Hz");
             }
 
-            if (wanted && Time.unscaledTime >= nextFlowDiagnostic)
+            if (pttActive && Time.unscaledTime >= nextFlowDiagnostic)
             {
                 nextFlowDiagnostic = Time.unscaledTime + 1f;
                 feed.ConsumeDiagnostics(out int pulls, out int pulledFrames, out int signalBlocks, out float peak);
                 float directOutputPeak = ReadDirectOutputPeak();
                 ReadMasterMix(out float masterPeak, out float masterRms);
-                float funkRxPeak = ReadTapRingPeak(radioRxTap);
-                float proxRxPeak = ReadTapRingPeak(proxRxTap);
+                float funkRxPeak = ReadTapRingPeak(radioRxTap, ref rxProbeBuffer);
+                float proxRxPeak = ReadTapRingPeak(proxRxTap, ref rxProbeBuffer);
+                float micPeak = ReadTapRingPeak(captureTap, ref micProbeBuffer);
                 RefreshTxChannelSnapshot();
                 bool tapInTx = ContainsChannel(txChannelSnapshot, captureTap.ChannelName);
                 VoiceSessionLog.Note(
@@ -147,6 +154,7 @@ namespace Earshot.Voice
                     $"txChannels=[{string.Join(" | ", txChannelSnapshot)}], tapInTx={tapInTx}, " +
                     $"pulls={pulls}, pulledFrames={pulledFrames}, " +
                     $"signalBlocks={signalBlocks}, clipPeak={peak:0.0000}, " +
+                    $"micPeak={micPeak:0.000000}, feedBlocked={diagnosticSidetoneBlocked}, " +
                     $"directOutputPeak={directOutputPeak:0.000000}, " +
                     $"funkRx={funkRxPeak:0.000000}, proxRx={proxRxPeak:0.000000}, " +
                     $"masterPeak={masterPeak:0.000000}, masterRms={masterRms:0.000000}, " +
@@ -264,8 +272,12 @@ namespace Earshot.Voice
                 ? VoiceRuntime.Instance.Backend as VivoxVoiceBackend
                 : null;
 
-            float funkRx = ReadTapRingPeak(radioRxTap);
-            float proxRx = ReadTapRingPeak(proxRxTap);
+            float funkRx = ReadTapRingPeak(radioRxTap, ref rxProbeBuffer);
+            float proxRx = ReadTapRingPeak(proxRxTap, ref rxProbeBuffer);
+            // v16.3: micPeak misst das LOKALE MIKROFON direkt am Capture-Tap -
+            // Sprachnachweis auch waehrend F11-Block (feedBlocked=True), denn
+            // der SDK-Pull fuellt den StreamClip unabhaengig von unserem Feed.
+            float micPeak = ReadTapRingPeak(captureTap, ref micProbeBuffer);
             ReadMasterMix(out float masterPeak, out float masterRms);
 
             proxParticipantScratch.Clear();
@@ -290,6 +302,7 @@ namespace Earshot.Voice
 
             VoiceSessionLog.Note(
                 $"WALKIE VIVOX RX: funkRx={funkRx:0.000000}, proxRx={proxRx:0.000000}, " +
+                $"micPeak={micPeak:0.000000}, feedBlocked={diagnosticSidetoneBlocked}, " +
                 $"vivoxOutMuted={outMuted}, vivoxOutDev='{outDev}', vivoxOutVol={outVol}, " +
                 $"funkRxPlaying={(radioRxSource != null && radioRxSource.isPlaying)}, " +
                 $"proxRxPlaying={(proxRxSource != null && proxRxSource.isPlaying)}, " +
@@ -307,7 +320,7 @@ namespace Earshot.Voice
         /// Mechanismus wie WalkieVivoxCaptureFeed, v12). Liefert -1, wenn
         /// Tap/Clip fehlen, 0 bei Stille und &gt;0 bei empfangenem Audio.
         /// </summary>
-        private float ReadTapRingPeak(VivoxAudioTap tap)
+        private float ReadTapRingPeak(VivoxAudioTap tap, ref float[] probeBuffer)
         {
             if (tap == null || tap.TapId < 0) return -1f;
 
@@ -343,13 +356,16 @@ namespace Earshot.Voice
                 // Weg: EIN Lesevorgang ab Offset 0 mit Buffer in Clip-Groesse
                 // (immer in-bounds), der Peak wird danach im Speicher ueber
                 // die letzten 0,2 s vor dem Schreibcursor berechnet.
+                // v16.3: Buffer pro Tap (ref) - Capture-Tap ist MONO, die
+                // Kanal-Sonden STEREO; ein gemeinsamer Buffer wuerde bei
+                // jedem Aufruf neu allokiert werden.
                 int totalSamples = totalFrames * channels;
-                if (rxProbeBuffer == null || rxProbeBuffer.Length != totalSamples)
+                if (probeBuffer == null || probeBuffer.Length != totalSamples)
                 {
-                    rxProbeBuffer = new float[totalSamples];
+                    probeBuffer = new float[totalSamples];
                 }
 
-                clip.GetData(rxProbeBuffer, 0);
+                clip.GetData(probeBuffer, 0);
 
                 int windowSamples = System.Math.Min(rxRingBuffer.Length, totalSamples);
                 int firstSample = writePointer * channels - windowSamples;
@@ -358,7 +374,7 @@ namespace Earshot.Voice
                 {
                     int index = firstSample + i;
                     if (index < 0) index += totalSamples;
-                    float absolute = rxProbeBuffer[index];
+                    float absolute = probeBuffer[index];
                     if (absolute < 0f) absolute = -absolute;
                     if (absolute > peak) peak = absolute;
                 }
@@ -699,8 +715,11 @@ namespace Earshot.Voice
                 diagnosticSidetoneBlocked = !diagnosticSidetoneBlocked;
                 VoiceSessionLog.Alert(diagnosticSidetoneBlocked
                     ? "WALKIE DIAGNOSE F11: Sidetone-Datenfluss BLOCKIERT - der Feed " +
-                      "liefert keine Samples mehr an die Walkie-Geraete. Stimme trotzdem " +
-                      "hoerbar -> sie kommt NICHT aus den Walkie-Lautsprechern."
+                      "liefert keine Samples mehr an die Walkie-Geraete (Mic-Uebertragung " +
+                      "laeuft weiter, micPeak im Log beweist deine Sprache). WIRD ES STUMM, " +
+                      "kommt der Ton ueber den Sidetone-Bus -> Walkie-Geraete (bei >20m " +
+                      "Abstand waere das der Leak-Beweis, Gegenprobe: F12). BLEIBT ES " +
+                      "HOERBAR, kommt der Ton garantiert NICHT aus den Walkie-Lautsprechern."
                     : "WALKIE DIAGNOSE F11: Sidetone-Datenfluss wieder freigegeben.");
             }
 

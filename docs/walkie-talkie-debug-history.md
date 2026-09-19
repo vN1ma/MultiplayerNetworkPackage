@@ -702,6 +702,42 @@ Nutzer-Beobachtungen + Log-Beweise:
 3. Auf die Unity-Konsole achten: Der „Invalid parameter“-Spam muss **WEG** sein. Falls weiterhin Spam: Quelle ist das SDK selbst (Stereo-`SetData` mit Frame-Offset in `VivoxAudioProcessor.cs:234`) → dann Sonden-Ergebnisse mit Vorsicht lesen.
 4. Ergebnis hier dokumentieren; bei F7-Positiv Auto-Mute-Flag aktivieren und Gegenprobe mit zweitem Client fahren (hören Remotes weiterhin?).
 
+## 17. v16.2 — Testergebnis: H1 endgültig tot (kein Kanal-Echo); F11 killt die Selbsthörung; Session-2-Ton war DESIGN (3,3 m); Session-1-Widerspruch offen (2026-09-19, 07:28–07:31)
+
+**Ausgewertet: 2 Logs `voice-20260919-072827 / -073122` (pid20120, `revision='leak-hunt-v16.2'` ✓).**
+
+Fix-Verifikation v16.2:
+
+- **„Invalid parameter"-Spam WEG:** Editor.log weiterhin exakt 37 Treffer (= Stand vor dem Fix, keine neuen während der Tests, Editor lief durch) → GetData-OOB-Fix wirkt.
+- **Sonden jetzt verlässlich:** `clipPeak=0,13–0,98` beim Sprechen (realistische Mikrofon-Pegel statt Blindwerten).
+
+Beweise:
+
+1. **H1 (Vivox-native Echo) endgültig widerlegt.** Während hörbarer Sprache (`ptt=True`, `clipPeak` bis 0,43) blieben **`funkRx=0,000000` und `proxRx=0,000000`** — die Engine empfängt die eigene Sendung auf keinem Kanal zurück; natives Playback hat kein Signal. F7 (4 Zyklen mute/entmute) ohne jede Wirkung — konsistent. H1 aus der Hypothesenliste streichen; `VivoxVoiceBackend.DiagnosticMuteVivoxNativeOutputOnLogin` wird nicht gebraucht (bleibt als Werkzeug, default aus).
+2. **F11 killt die Selbsthörung** (Nutzerbericht, 2 Zyklen Session 1 mit `ptt=True` im Fenster + Session 2) → der hörbare Ton hängt **kausal an unserem Sidetone-Feed/Bus**.
+3. **Session 2 (073122): Die Selbsthörung war DESIGN.** `WALKIE OUTPUT AN: device='WalkieTalkie (1)', mode=SIDETONE, stream='__local__', reason=AUDIBLE, distance=3,30m, target=0,121, actual=0,063` + INVENTAR `vol=0,12` — exakt das Soll-Verhalten (sich am ANDEREN Gerät hören). F11 blockt den Feed → stumm. **Kein Leak.** (Abstandsdisziplin wieder verletzt: 3,3 m statt >20 m.)
+4. **Session 1 (072827): Widerspruch, offen.** Beide Walkies außer Reichweite (51–137 m, `OUT_OF_RANGE`, `target=0`), eigenes Gerät `OWN_DEVICE_TX, target=0`, alle spielenden Unity-Quellen `vol=0` (INVENTAR vollständig — kein Cap), kein einziges `OUTPUT AN`, kein Spatializer/Mixer im Projekt (`AudioListener.volume` wäre absolut) — trotzdem: F7-Fenster hörbar, F11-Fenster stumm. Kein protokollierter Pfad erklärt das. **Beweislücke:** Während der F11-Fenster gab es KEINE FLOW-Zeilen (FLOW lief nur bei aktivem Feed) → nicht nachweisbar, ob im 1. F11-Fenster überhaupt gesprochen wurde (masterPeak dort flach 0,006–0,009 vs. 0,02–0,05 sonst bei PTT+Sprache).
+
+Architektur-Klarheit (SDK-Quellcode `com.unity.services.vivox@16.10.0` gelesen):
+
+- Der „Sidetone-Tap" ist ein **`VivoxCaptureSourceTap`** (liefert das LOKALE MIKROFON; `vxunity_register_for_capture_source`), kein Kanal-Audio. Das Pinnen auf den Proximity-Kanal betrifft nur die Registrierung.
+- Die RX-Sonden sind `VivoxChannelAudioTap` (empfangener Kanal-Audio, nur REMOTE-Teilnehmer). `proxRx=0` in Solo ist **korrekt**: Vivox sendet die eigene Stimme nicht zurück.
+- Sidetone-Datenpfad: Mikrofon → Engine-Capture → SDK-StreamClip → unser Feed (Reflektion) → `WalkieRadioBus` → `WalkieDeviceOutput` (Unity, volumengesteuert, 0,2 s Delay, EQ, Crunch).
+- **F9 war ein No-Op:** `tapSource.mute` nullt weder den SDK-Clip (wird nativ gefüllt) noch den Bus. Der v16-Rückschluss „Sidetone-Datenpfad unschuldig" (gestützt auf den blinden `clipPeak≈0,002`) war ein Messartefakt.
+- `VivoxCaptureSinkTap` (Audio-Push IN die Engine) wird von uns nirgends genutzt.
+
+**Fix v16.3 (dieser Commit):** FLOW-/INVENTAR-Logging läuft jetzt auch bei F11-Block (`pttActive` von `wanted` entkoppelt); neue Felder **`micPeak`** (lokales Mikrofon direkt am Capture-Tap — Sprachnachweis alle 1–2 s, auch bei geblocktem Feed) und **`feedBlocked`** in FLOW- und VIVOX-RX-Zeilen; Sonden-Buffer pro Tap (kein Re-Alloc durch Mono-/Stereo-Wechsel); F11-Meldungstext mit beidseitiger Beweislogik; Revision `leak-hunt-v16.3`.
+
+**Testprotokoll v16.3 (entscheidend — jede Zeile ohne `revision='leak-hunt-v16.3'` ist altes Package):**
+
+1. >20 m von ALLEN Walkies (kein Walkie in 8 m Reichweite!), PTT halten und DURCHGEHEND laut sprechen.
+2. **F11** mitten im Sprechen drücken, 10 s weiter sprechen, F11 lösen. Ton weg? — Log muss im Fenster `feedBlocked=True` UND `micPeak>0,05` zeigen, sonst ist der Test ungültig.
+3. Direkt danach **F12** mitten im Sprechen, 10 s weiter sprechen. Ton weg?
+4. Interpretation:
+   - **F11 stumm + F12 NICHT stumm** (bei nachgewiesener Sprache in beiden Fenstern) → Ton ist bus-abhängig, aber nachweislich nicht im Unity-Mix → es existiert ein nicht protokollierter Pfad → nächste Ebene: OS-Seite vermessen (Peak-Meter am Host-Ausgang `Lautsprecher (VB-Audio Virtual Cable)` während F12/F11, Parsec-/VB-Cable-Kette).
+   - **F11 stumm + F12 auch stumm** → alles konsistent: Der Ton lief über Unity (Walkie-Sidetone) → Ursache war Nähe/Duplikat, kein „Leak" → OWN_DEVICE_TX-/Selbst-Abstand-Guards gezielt prüfen.
+   - **F11 NICHT stumm** (bei `micPeak>0`) → die Session-1-Beobachtung war ein Artefakt (keine Sprache im Fenster) → H2/H3-Bewertung neu aufrollen.
+
 ---
 
 *Dokument angelegt 2026-09-18. Bei jedem weiteren gescheiterten oder erfolgreichen Ansatz: hier einen kurzen Abschnitt ergänzen (Datum, Symptom, Hypothese, Fix, Log-Beweis, Ergebnis), nicht nur CHANGELOG-Zeilen.*
