@@ -57,16 +57,46 @@ namespace Earshot.Voice.Editor
         }
 
         /// <summary>
-        /// EditorGUILayout.LayerMaskField ist intern (nicht oeffentlich). Der
-        /// bekannte Workaround: MaskField mit Layer-Namen plus Konvertierung
-        /// ueber InternalEditorUtility.
+        /// EditorGUILayout hat kein oeffentliches LayerMask-Feld. Wir bauen es
+        /// aus MaskField: displayedOptions sind die belegten Layer-Namen, die
+        /// Bits dort sind Indizes in diese Liste und werden auf die echten
+        /// Layer-Nummern zurueckgerechnet. Nutzt nur oeffentliche API.
         /// </summary>
         private static LayerMask LayerMaskField(string label, LayerMask mask)
         {
-            string[] layers = InternalEditorUtility.layers;
-            string[] selected = InternalEditorUtility.LayerMaskToLayers(mask);
-            string[] newSelected = EditorGUILayout.MaskField(label, selected, layers);
-            return InternalEditorUtility.LayersToMask(newSelected);
+            var names = new List<string>();
+            var layerNumbers = new List<int>();
+            for (int i = 0; i < 32; i++)
+            {
+                string layerName = LayerMask.LayerToName(i);
+                if (!string.IsNullOrEmpty(layerName))
+                {
+                    names.Add(layerName);
+                    layerNumbers.Add(i);
+                }
+            }
+
+            int maskValue = 0;
+            for (int i = 0; i < layerNumbers.Count; i++)
+            {
+                if (((mask.value >> layerNumbers[i]) & 1) != 0)
+                {
+                    maskValue |= 1 << i;
+                }
+            }
+
+            int newMaskValue = EditorGUILayout.MaskField(
+                label, maskValue, names.ToArray());
+
+            int result = 0;
+            for (int i = 0; i < layerNumbers.Count; i++)
+            {
+                if (((newMaskValue >> i) & 1) != 0)
+                {
+                    result |= 1 << layerNumbers[i];
+                }
+            }
+            return result;
         }
 
         private void OnGUI()
