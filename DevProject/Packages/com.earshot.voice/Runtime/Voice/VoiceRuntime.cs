@@ -71,6 +71,7 @@ namespace Earshot.Voice
             instance = go.AddComponent<VoiceRuntime>();
             WalkieRadioSync.EnsureOn(instance);
             WalkieSidetoneCapture.EnsureOn(instance);
+            VoiceGraphDebugHUD.EnsureOn(instance);
             return instance;
         }
 
@@ -90,6 +91,7 @@ namespace Earshot.Voice
             VoiceRoster.IdentityReady += OnIdentityReady;
             WalkieRadioSync.EnsureOn(this);
             WalkieSidetoneCapture.EnsureOn(this);
+            VoiceGraphDebugHUD.EnsureOn(this);
             WalkieTalkieRegistry.NotifyChanged();
         }
 

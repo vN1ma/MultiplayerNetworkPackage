@@ -250,6 +250,32 @@ Tests: `Tests/EditMode/WalkieRulesTests.cs`
 
 
 
+## Debug: F7 = Graph-Debug-HUD (v16.5)
+
+Zum Testen, wie Schall durchs Hotel „reist": **F7** im Spiel drückt → unten rechts erscheint
+das `VoiceGraphDebugHUD` (wird automatisch mit dem VoiceRuntime erzeugt, kein Setup im Game-Repo).
+
+- **DU:** eigene `VoiceZone` + Position (anhand des aktiven `AudioListener`)
+- **Pro Remote-Spieler und Walkie** eine Karte: Ziel-Zone, **Luftlinie vs. LAUFWEG** (identisch
+  zur Rechnung der Mund-Stimme inkl. Türen-/Ecken-Aufschlag), Türen-Kette mit Offenheitsgrad
+  (z. B. `Du -> [Tuer 100%] -> [Tuer 15% ZU] -> Ziel`), Portal-/Raum-Zähler, Geschlossenheit
+- Kein Weg durch Türen → „KEIN Weg durch Tueren -> Occlusion/Sichtlinie"
+- **Walkie-Karten tragen eine gelbe Warnung:** der Geräteton dämpft nach Luftlinie
+  (`MaxHearingDistance`), NICHT nach Graph — genau diese Lücke sichtbar zu machen ist der
+  Sinn des HUDs (Designfrage in `docs/OFFENE-PUNKTE.md`)
+- Checkbox im HUD: **Welt-Linien** (grün = offene Tür, rot = geschlossene; nur bei aktivierten
+  Gizmos in Scene/Game sichtbar, durch Wände sichtbar)
+
+Voraussetzungen: Damit der Graph rechnet, brauchen Räume `VoiceZone`- und Türen
+`VoicePortal`-Trigger (siehe oben). Ohne Zonen zeigt das HUD „keine Zone" und der Voice-Fallback
+(Occlusion/Sichtlinie) gilt.
+
+Die alten Leak-Hunt-Tasten F8–F12 sind **default aus**; wiedereinschaltbar über
+`Diagnostic Hotkeys Enabled` an der WalkieSidetoneCapture-Komponente am „Earshot Voice Runtime"-
+Objekt (nur während Play). Volle Belegungstabelle: `docs/debug-keys.md`.
+
+---
+
 ## Checkliste Game-Repo
 
 - [ ] Prefab mit `EarshotWalkieTalkie`

@@ -20,8 +20,25 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   Behebt zugleich die bisher volumen-immune Distanzdaempfung von Remote-Funk-Stimmen
   an Geraeten (Beweis: Log 20260919-090425, Abschnitt 18 der Debug-Historie).
 
+### Geaendert
+
+- Leak-Hunt-Diagnose-Hotkeys F7-F12 (`WalkieSidetoneCapture`) sind per Default DEAKTIVIERT
+  (v16.5): Root-Cause ist gefixt, F7 gehoert jetzt dem `VoiceGraphDebugHUD`. Zum Nachtesten
+  am 'Earshot Voice Runtime'-Objekt die Checkbox `Diagnostic Hotkeys Enabled` setzen; beim
+  Deaktivieren werden aktive Diagnose-Zustaende (F8-Geraet, F9-Mute, F10-Volume, F11-Feed,
+  F12-Master) automatisch zurueckgesetzt. Belegungstabelle: `docs/debug-keys.md`
+
 ### Hinzugefuegt
 
+- `VoiceGraphDebugHUD` (v16.5): Runtime-Debug-HUD fuer den Raum-Portal-Graphen, unten rechts,
+  Toggle mit F7 (Inspector-konfigurierbar). Zeigt eigene Zone/Position, pro Remote-Spieler und
+  Walkie die Ziel-Zone, Luftlinie vs. Graph-Laufweg (Rechenweise identisch zu
+  `VoicePipeline.TryApplyGraph` inkl. Tuer-/Ecken-Aufschlag), die Tuer-Kette mit
+  Offenheitsgrad, Portal-/Raum-Zaehler und Geschlossenheit; gesperrte Wege als
+  Occlusion-Hinweis. Walkies erhalten eine Warnung, dass ihr Geraeteton nach Luftlinie
+  (nicht nach Graph) daempft. Optionale Welt-Linien des Schallwegs (`Debug.DrawLine`,
+  gruen = offen, rot = zu). Wird automatisch am VoiceRuntime-Objekt erzeugt, rein
+  diagnostisch, kein Audio-Einfluss. Key-Map: `docs/debug-keys.md`
 - `EarshotWalkieTalkie.SetLocalOwnership(bool)` + `IsLocallyOwned`: schuetzt `SetTransmitting`
   davor, auf fremden (Remote-)Client-Instanzen faelschlich Mikro/Sidetone auszuloesen —
   Standard bleibt `true` (unveraendertes Verhalten ohne Netzwerk)

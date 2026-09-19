@@ -4,9 +4,11 @@
 
 **Phase 4 in Arbeit — Walkie-Talkie**
 
-Status: Sidetone, Fan-out an alle Empfangs-Geraete und First-Speaker-Lock sind drin. Optik/Input bleiben im Game-Repo — siehe `docs/walkie-talkie-game-integration.md`. Debug-Verlauf (Symptome, gescheiterte Ansaetze, Log-Beweise): `docs/walkie-talkie-debug-history.md`.
+Status: **v16.4 (leak-hunt) — Sidetone-Leak ROOT CAUSE gefixt und im Spiel bestätigt** (2026-09-19): `WalkieDeviceOutput.OnAudioFilterRead` überschrieb `data` in vollem Pegel und umging damit sämtliche Unity-Lautstärkeregeln (Distanz, OWN_DEVICE_TX, OUT_OF_RANGE, F12). Lautstärke wird jetzt autoritativ im Filter durchgesetzt; `MaxHearingDistance`-Tuning wirkt erstmals hörbar. Details: `DECISIONS.md`, `walkie-talkie-debug-history.md` Abschnitt 18, Tuning-Doku in `walkie-talkie-game-integration.md`.
 
-Nächster Schritt: Package-Revision `proximity-pin-v9` im Spiel updaten (Unity wegen Package-Cache neu starten!) und allein testen. v9 pinnen den Vivox-Capture-Tap permanent auf den Proximity-Kanal: Funkkanal-Pins lieferten in allen Logs nie native Daten (nur den ~100-ms-Restpuffer, der als Sidetone-Blitz hörbar war). Wenn auch der Proximity-Tap während Funk-TX stumm bleibt, folgt Plan C (lokales Mikrofon-Loopback).
+**Offene Punkte (definitive Liste): `docs/OFFENE-PUNKTE.md`** — v16.4-Nachtests (F12-Vollverifikation, Remote-Distanztest), Editor.log-Beobachtung, Repo-Hygiene, akustische Designfragen (Walkie-Geräteton durch den Raum-Portal-Graphen?).
+
+**Graph-Debug-HUD ist umgesetzt (v16.5, Test ausstehend):** `VoiceGraphDebugHUD` — unten rechts, **F7** toggelt. Zeigt eigene Zone/Position, pro Remote-Spieler und Walkie die Ziel-Zone, Luftlinie vs. Graph-Laufweg, Türen-Kette mit Offenheitsgrad, Raum-Zähler, Occlusion-Hinweise, optionale Welt-Linien. Wird automatisch am VoiceRuntime erzeugt. Leak-Hunt-Hotkeys (F7–F12) default AUS (Inspector-Flag, Auto-Restore beim Deaktivieren). Key-Map: `docs/debug-keys.md`. Noch offen: im Spiel verifizieren (Package aktualisieren, Unity neu starten, F7) und die Designfrage „Walkie-Geräteton durch den Graphen?" (OFFENE-PUNKTE.md).
 
 ---
 

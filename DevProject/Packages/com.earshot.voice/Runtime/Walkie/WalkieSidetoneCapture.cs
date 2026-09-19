@@ -14,6 +14,17 @@ namespace Earshot.Voice
     {
         private const string DiagnosticRevision = "leak-hunt-v16.4";
 
+        // v16.5: Leak-Hunt-Hotkeys (F7-F12) sind per Default AUS. Der Root-Cause
+        // ist gefixt und im Spiel bestaetigt, und F7 wird jetzt vom
+        // VoiceGraphDebugHUD benutzt. Zum Nachtesten der alten Diagnose die
+        // Komponente am 'Earshot Voice Runtime'-Objekt im Inspector anklicken
+        // und diese Checkbox waehrend Play setzen - laufende Diagnose-Zustaende
+        // werden beim Deaktivieren automatisch zurueckgesetzt.
+        // Belegung und Hintergruende: docs/debug-keys.md.
+        [SerializeField]
+        [Tooltip("Leak-Hunt-Diagnose-Hotkeys F7-F12 aktivieren (Default aus, siehe docs/debug-keys.md).")]
+        private bool diagnosticHotkeysEnabled;
+
         private VivoxCaptureSourceTap captureTap;
         private WalkieVivoxCaptureFeed feed;
         private AudioSource tapSource;
@@ -92,7 +103,18 @@ namespace Earshot.Voice
             TryPinTapToActiveChannel();
             EnsureRxTaps();
             EnforceSilentDirectOutput();
-            HandleDiagnosticHotkeys();
+
+            // v16.5: Leak-Hunt-Hotkeys nur noch auf Wunsch (Default aus).
+            // Beim Ausschalten werden aktive Diagnose-Zustaende (F8-Geraet,
+            // F9-Mute, F10-Volume, F11-Feed, F12-Master) sicher zurueckgesetzt.
+            if (diagnosticHotkeysEnabled)
+            {
+                HandleDiagnosticHotkeys();
+            }
+            else
+            {
+                RestoreDiagnosticsIfActive();
+            }
 
             bool ready = captureTap != null && captureTap.TapId >= 0 && feed != null;
             // v16.3: pttActive trennt "PTT + Tap bereit" vom diagnostischen
@@ -621,6 +643,59 @@ namespace Earshot.Voice
         /// v14: F8 = Vivox-Nativwiedergabe auf ein physisches Geraet umleiten -
         /// trennt den Unity-Mix vom Vivox-Empfangspfad (siehe Handler).
         /// </summary>
+        /// <summary>
+        /// v16.5: Rueckgaengig machen, was die Leak-Hunt-Hotkeys evtl. verstellt
+        /// haben, wenn sie per Inspector deaktiviert wurden (z.B. F12-Master
+        /// stumm, F8 anderes Ausgabegeraet, F11 geblockter Feed). Laeuft nur
+        /// einmalig, weil die Flags dabei zurueckgesetzt werden.
+        /// </summary>
+        private void RestoreDiagnosticsIfActive()
+        {
+            bool restored = false;
+
+            if (diagnosticMasterMuted)
+            {
+                AudioListener.volume = diagnosticMasterVolumeBefore;
+                diagnosticMasterMuted = false;
+                restored = true;
+            }
+
+            if (diagnosticVivoxOutputBefore != null)
+            {
+                string restore = diagnosticVivoxOutputBefore;
+                diagnosticVivoxOutputBefore = null;
+                _ = EarshotVoice.SetOutputDeviceAsync(restore);
+                restored = true;
+            }
+
+            if (diagnosticSidetoneBlocked)
+            {
+                diagnosticSidetoneBlocked = false;
+                restored = true;
+            }
+
+            if (diagnosticHardMute)
+            {
+                diagnosticHardMute = false;
+                if (tapSource != null) tapSource.mute = false;
+                restored = true;
+            }
+
+            if (diagnosticLegacyVolume)
+            {
+                diagnosticLegacyVolume = false;
+                if (tapSource != null) tapSource.volume = 0f;
+                restored = true;
+            }
+
+            if (restored)
+            {
+                VoiceSessionLog.Alert(
+                    "WALKIE DIAGNOSE: Hotkeys deaktiviert - alle Diagnose-Zustaende " +
+                    "(F8-Geraet, F9-Mute, F10-Volume, F11-Feed, F12-Master) zurueckgesetzt.");
+            }
+        }
+
         private void HandleDiagnosticHotkeys()
         {
             // v14: Vivox spielt EMPFANGENEN Kanal-Ton zusaetzlich nativ auf sein
