@@ -5,7 +5,8 @@ using UnityEngine;
 namespace Earshot.Voice
 {
     /// <summary>
-    /// Runtime-Debug-HUD fuer den Raum-Portal-Graphen: zeigt unten rechts, in
+    /// Runtime-Debug-HUD fuer den Raum-Portal-Graphen: zeigt als grosses,
+    /// verschiebbares Vollbild-Fenster (Einstellungsfenster-Stil), in
     /// welcher <see cref="VoiceZone"/> man selbst steht und ueber welchen Weg
     /// (Tueren, Treppen, Offenheitsgrad) der Schall zu Kollegen und Walkie-
     /// Geraeten laufen WUERDE — Luftlinie vs. Graph-Laufweg, exakt wie
@@ -37,13 +38,21 @@ namespace Earshot.Voice
         [Tooltip("Aktualisierungstakt des HUD-Inhalts in Sekunden.")]
         private float refreshSeconds = 0.25f;
 
-        private const int MaxTargetCards = 8;
+        [SerializeField, Range(10, 32)]
+        [Tooltip("Schriftgroesse des HUD-Inhalts im Vollbild-Fenster.")]
+        private int fontSize = 16;
+
+        private const int MaxTargetCards = 12;
+        private const int WindowId = 0x45415253; // "EARS"
 
         private bool visible;
         private bool showWorldPath = true;
         private float nextRefresh = -1f;
         private string hudText = "Earshot Graph Debug - wird geladen ...";
         private GUIStyle labelStyle;
+        private Rect windowRect;
+        private bool windowRectInitialized;
+        private Vector2 scrollPosition;
 
         private readonly Collider[] zoneProbeBuffer = new Collider[16];
         private readonly List<VoicePortal> pathPortals = new List<VoicePortal>(8);
@@ -92,28 +101,56 @@ namespace Earshot.Voice
         {
             if (!visible) return;
 
-            const float width = 470f;
-            float height = Mathf.Min(620f, Screen.height - 40f);
-            var rect = new Rect(Screen.width - width - 16f, Screen.height - height - 16f, width, height);
-
-            GUILayout.BeginArea(rect, GUI.skin.box);
-
-            if (labelStyle == null)
+            if (labelStyle == null || labelStyle.fontSize != fontSize)
             {
                 labelStyle = new GUIStyle(GUI.skin.label)
                 {
                     richText = true,
                     wordWrap = true,
-                    fontSize = 12
+                    fontSize = fontSize
                 };
             }
 
+            // Erstes Oeffnen: Fenster fuellt die Flaeche bis auf einen Rand,
+            // danach bleibt die (vom Nutzer ggf. verschobene) Position erhalten.
+            if (!windowRectInitialized)
+            {
+                float marginX = Mathf.Max(24f, Screen.width * 0.04f);
+                float marginY = Mathf.Max(24f, Screen.height * 0.04f);
+                windowRect = new Rect(
+                    marginX,
+                    marginY,
+                    Screen.width - marginX * 2f,
+                    Screen.height - marginY * 2f);
+                windowRectInitialized = true;
+            }
+
+            // Nach Aufloesungs-/Fensterwechsel im Bild halten.
+            windowRect.width = Mathf.Min(windowRect.width, Screen.width - 8f);
+            windowRect.height = Mathf.Min(windowRect.height, Screen.height - 8f);
+            windowRect.x = Mathf.Clamp(windowRect.x, 0f, Mathf.Max(0f, Screen.width - windowRect.width));
+            windowRect.y = Mathf.Clamp(windowRect.y, 0f, Mathf.Max(0f, Screen.height - windowRect.height));
+
+            windowRect = GUILayout.Window(
+                WindowId,
+                windowRect,
+                DrawWindowContent,
+                "EARSHOT GRAPH DEBUG  (" + toggleKey + " schliesst)",
+                GUI.skin.window);
+        }
+
+        private void DrawWindowContent(int windowId)
+        {
+            scrollPosition = GUILayout.BeginScrollView(scrollPosition);
             GUILayout.Label(hudText, labelStyle);
+            GUILayout.EndScrollView();
+
+            GUILayout.Space(6f);
             showWorldPath = GUILayout.Toggle(
                 showWorldPath,
                 "Schallweg als Welt-Linien (rot = Tuer zu, gruen = offen; nur mit Gizmos sichtbar)");
 
-            GUILayout.EndArea();
+            GUI.DragWindow(new Rect(0f, 0f, 10000f, 20f));
         }
 
 
