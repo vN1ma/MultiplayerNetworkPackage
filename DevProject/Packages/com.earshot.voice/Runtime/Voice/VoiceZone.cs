@@ -39,6 +39,17 @@ namespace Earshot.Voice
         private float crossZoneMuffle = 0.4f;
 
         public string ZoneName => zoneName;
+
+        /// <summary>
+        /// Authoring-/Generator-API: setzt den Anzeigenamen der Zone. Reine
+        /// Beschriftung (HUD, Preflight) - kein Graph-Rebuild noetig.
+        /// </summary>
+        public void SetZoneName(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value) || zoneName == value) return;
+            zoneName = value;
+        }
+
         public float Reverb => reverb;
         public float Absorption => absorption;
         public float CrossZoneVolume => crossZoneVolume;

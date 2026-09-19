@@ -97,7 +97,13 @@ voll tunbar, klein. Steam Audio nur falls Phase 5 einen konkreten Bedarf zeigt.
   HUD-`LastPath` nicht (rememberPath=false).
 - [ ] **1d:** Occlusion-Tuning im Profil (WallsUntilFullMuffle > 1, weichere Kurve) — nach F7-Tests.
 
-### Phase 2 — Authoring-Pipeline (Editor-Tool im HOTEL_GAME)
+### Phase 2 — Authoring-Pipeline — gebaut (v16.8, 2026-09-19)
+> Umgesetzt: `VoiceGraphFactory` (Runtime-API, auch Basis für Phase 4), neues
+> `VoiceAuthoringWindow` (Marker→Zonen, Container, Dry-Run, Undo, Prüfung),
+> im HOTEL_GAME `SimpleDoorPortalLink` + `EarshotHotelAuthoring` (Türen
+> verkabeln/prüfen/entfernen), 5 EditMode-Tests. **Ausführung im Hotel steht
+> noch aus** (Marker setzen, Zonen generieren, Türen verkabeln) — der
+> Szene-Scan von 2026-09-19 ergab 0 Zonen/Portale in TRIALITY_HOTEL.
 > Wichtig zum Verständnis: **Editor-Authoring = einmalig, gespeichert in der Szene.**
 > Zur Spielzeit wird NICHT „ausgerechnet, wo Räume sind" — der Graph liest nur die platzierten
 > Komponenten (Millisekunden, nur bei Struktur-Änderung). Genau das „einmal machen und

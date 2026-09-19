@@ -319,7 +319,12 @@ namespace Earshot.Voice
             }
         }
 
-        internal static bool TryResolveSides(VoicePortal portal, out VoiceZone a, out VoiceZone b)
+        /// <summary>
+        /// Authoring-API: liefert die beiden Raeume, die ein Portal verbindet. So
+        /// entscheiden Werkzeug und Graph identisch (explizite Zuweisung schlaegt
+        /// die Achsen-Probe, Details siehe unten im Rumpf).
+        /// </summary>
+        public static bool TryResolveSides(VoicePortal portal, out VoiceZone a, out VoiceZone b)
         {
             a = null;
             b = null;
