@@ -648,6 +648,33 @@ Bleibt als letzte Messlücke: `GetOutputData` an AudioSources misst VOR `OnAudio
 
 **Artefakt-Status:** v16 wird als **Diagnose-Revision** committet (NICHT als Fix validiert; im Default-Pfad kein Verhaltens-Change — Übernahme ins Spiel später per Package-Manager-Update wie üblich). Auto-Mute default AUS. Echo-Kanal-These geprüft und verworfen. Bei Wiederaufnahme gilt: **erst T1–T3, dann erst wieder Code-Änderungen.**
 
+**v16.1 (2026-09-19): Chrome-Gegenprobe am Host — Remote-Kette WIDERLEGT, Leak ist strikt PTT-gekoppelt. Verdacht kippt zurück In-Prozess (H1: Engine empfängt eigene Sendung).**
+
+**Nutzer-Test (remote, am Host):** Chrome-Mikrofon-Test am HOST — Mikro funktioniert, **keine** Selbsthörung (weder bei Parsec- noch bei RDP-Verbindung), außer die Website-Option „sich selbst anhören“ wird explizit aktiviert. Zusätzlich verbindlich: **In-game ohne Walkie KEINE Selbsthörung** (Proximity sendet dauerhaft!) — nur bei gehaltener Walkie-Taste.
+
+**Bewertung:**
+
+1. Jede Mikrofon-Schleife auf OS-/Streaming-Ebene (Parsec-Peer-Audio, RDP-„Anhören“, VB-Cable-Loop) wäre NICHT PTT-gekoppelt — Proximity-Sprechen würde sie genauso auslösen. → Die v16-Meta-Leithypothese (Remote-Kette) ist **TOT**. Die „Parsec“-Ausschläge in sndvol brauchen eine neue Deutung: plausibel ist Parsecs Loopback-**Capture** des Default-Outputs, das als Session-Meter erscheint — kein Mic-Playback.
+2. Der Leak ist strikt an den Funk-Sendezustand gekoppelt → der Täter wird mit `SetRadioTransmittingAsync(true)` scharfgeschaltet. In-Prozess-Kandidaten: (a) Sidetone-Pfad (Feed → WalkieDeviceOutput; per Design PTT-gekoppelt UND räumlich/distanz-gated — müsste bei >8 m still sein), (b) ein Vivox-native Mechanismus während TX.
+3. **Paradox:** v15-F12 (masterPeak=0 + hörbar) sagt „nicht Unity-Graph“; der Solo-Gruppenkanal sagt „nicht Vivox-native“; der Chrome-Test sagt „nicht OS“. Mindestens eine dieser Aussagen ist falsch — schwächstes Glied ist die F12-**Beobachtung** (nie wiederholt; Hangover/Wahrnehmung möglich).
+4. **Elegante Auflösung, die alle Fakten vereint (neue H1):** Bekommt die Vivox-Engine aus irgendeinem Grund die eigene Sendung zurück (self-participant), dann gilt alles gleichzeitig: Die RX-Taps in Unity sind per Design stumm (volume=0) → masterPeak bleibt 0 → der Ton überlebt F12 → die native Wiedergabe spielt ihn → auch solo hörbar → strikt PTT-gekoppelt. **Genau das misst die v16-`VIVOX-RX`-Sonde (`funkRx`).**
+
+**Neues Hypothesen-Ranking:**
+
+- **H1:** Vivox-native gibt die eigene Sendung wieder (Engine empfängt Self-Audio). Beweis: `funkRx>0` bei PTT; Gegenprobe F7 (native stumm → Ton weg). Falls bewiesen: `VivoxVoiceBackend.DiagnosticMuteVivoxNativeOutputOnLogin = true` wäre der Dauer-Fix.
+- **H2:** F12-Beobachtung war fehlerbehaftet → Sidetone-/Unity-Pfad ist der Täter (z. B. Distanz-Guard versagt). Beweis: `masterPeak>0` bei PTT, oder F9/F11-Killswitch entfernt den Ton.
+- **H3:** Teilweise legitimer Sidetone (nahe Walkies) + Wahrnehmung. Ausschluss durch Testdisziplin: >20 m Distanz.
+
+**Testprotokoll v16 (im Spiel, remote machbar — Package im Spiel auf Commit `83b512d` aktualisieren; Log muss `revision='leak-hunt-v16'` zeigen):**
+
+1. >20 m von allen Walkies entfernen, PTT halten, 10 s normal sprechen, loslassen. `VIVOX-RX`-Zeile prüfen:
+   - `funkRx>0` → **H1 bewiesen** (Engine empfängt eigene Sendung; serverseitig/SDK). Direkt F7 drücken (native stumm): Ton weg → Fix gefunden (Auto-Mute-Flag aktivieren).
+   - `funkRx=0`, aber `masterPeak>0` → Unity-Pfad (H2) → AUDIO-INVENTAR-Zeilen nach der spielenden Quelle durchsuchen.
+   - `funkRx=0`, `masterPeak=0`, Ton trotzdem hörbar → F12-Fall reproduziert → native ohne RX-Tap-Sichtbarkeit oder Wahrnehmung → F7 drücken (native AN) und Lautstärke vergleichen; F12 drücken und Log-Zeile bestätigen.
+2. F12 drücken (Log-Zeile prüfen!), weitersprechen: Ton weg? (F12-Beobachtung endlich sauber wiederholen.)
+3. F9 (Capture-Tap-Hard-Mute) und F11 (Sidetone-Datenfluss kappen) je einzeln testen: Ton weg?
+4. Ergebnis hier als eigener Abschnitt dokumentieren.
+
 ---
 
 *Dokument angelegt 2026-09-18. Bei jedem weiteren gescheiterten oder erfolgreichen Ansatz: hier einen kurzen Abschnitt ergänzen (Datum, Symptom, Hypothese, Fix, Log-Beweis, Ergebnis), nicht nur CHANGELOG-Zeilen.*
