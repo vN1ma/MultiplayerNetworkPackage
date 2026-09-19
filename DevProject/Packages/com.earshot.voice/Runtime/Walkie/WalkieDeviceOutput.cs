@@ -4,6 +4,10 @@ namespace Earshot.Voice
 {
     /// <summary>
     /// Lautsprecher an einem Walkie: Remote-Gewinner oder lokales Sidetone, mit Delay.
+    /// v16.7 (Phase 1c, E3): Der Geraeteton laeuft durch denselben Welt-Messweg wie die
+    /// Stimme - Zonen, Graph-Pfad, Tueren, Waende. Ein liegendes Walkie klingt damit wie
+    /// eine Quelle an diesem Ort: dumpf hinter der geschlossenen Tuer, leiser um den
+    /// Umweg, nicht mehr nach reiner Luftlinie.
     /// v16.4: Die effektive Lautstaerke wird IM OnAudioFilterRead multipliziert.
     /// Unity zieht AudioSource.volume und AudioListener.volume VOR OnAudioFilterRead
     /// vom Datenstrom ab - wer dort data komplett UEBERSCHREIBT, umgeht saemtliche
@@ -25,6 +29,10 @@ namespace Earshot.Voice
     {
         private const int MaxDelaySeconds = 2;
         private const float VolumeSmoothPerSecond = 6f;
+
+        // Wie schnell der Welt-Tiefpass (Tuer faellt zu, Wand dazwischen) nachzieht.
+        // Logarithmisch (wie die Stimmen-Filter im Profil), damit nichts knackt.
+        private const float WorldFilterSmoothPerSecond = 10f;
         private const float ActiveDiagnosticIntervalSeconds = 5f;
 
         // Nie naeher als das rechnen — sonst kann ein Geraet direkt am Ohr (z.B. Hand-Modell
@@ -60,6 +68,14 @@ namespace Earshot.Voice
 
         private float[] monoPullBuffer = new float[2048];
         private float smoothedVolume;
+
+        // v16.7 (Phase 1c): Welt-Auswertung fuer den Geraeteton. Laeuft in LateUpdate
+        // pro aktivem Geraet einmal durch die VoicePipeline (ohne Distanz-Modul) und
+        // liefert Welt-Daempfung + Tiefpass, die in die Geraete-Regelung gemischt werden.
+        private readonly VoicePipeline worldPipeline = new VoicePipeline();
+        private float worldVolume = 1f;
+        private float worldLowPassHz = VoiceSample.NoLowPass;
+        private float smoothedWorldLowPassHz = VoiceSample.NoLowPass;
 
         // v16.4: AudioListener.volume wird von Unity VOR OnAudioFilterRead
         // abgezogen und kann durch das Ueberschreiben von data umgangen werden
@@ -262,16 +278,26 @@ namespace Earshot.Voice
             radioCrunch = walkie.RadioCrunch;
 
             bool active = ShouldOutput();
-            float falloff = DistanceFalloff(out float listenerDistance, out Vector3 listenerPosition);
+            bool sidetone = IsSidetoneMode();
+
+            float falloff = EvaluateWorldFalloff(
+                active,
+                out float listenerDistance,
+                out float pathDistance,
+                out bool usedGraph,
+                out Vector3 listenerPosition);
+
             float targetVolume = 0f;
             if (active)
             {
-                bool sidetone = IsSidetoneMode();
                 float baseVol = sidetone
                     ? WalkieTalkieRegistry.ActiveSidetoneWorldVolume
                     : walkie.RadioVolume;
-                targetVolume = Mathf.Clamp01(baseVol * falloff * EarshotVoice.HeardVoiceVolume);
+                targetVolume = Mathf.Clamp01(
+                    baseVol * falloff * worldVolume * EarshotVoice.HeardVoiceVolume);
             }
+
+            SmoothWorldLowPass();
 
             smoothedVolume = Mathf.MoveTowards(
                 smoothedVolume,
@@ -289,6 +315,8 @@ namespace Earshot.Voice
                 targetVolume,
                 falloff,
                 listenerDistance,
+                pathDistance,
+                usedGraph,
                 listenerPosition);
         }
 
@@ -327,23 +355,68 @@ namespace Earshot.Voice
             return !string.IsNullOrEmpty(winner);
         }
 
-        private float DistanceFalloff(out float rawDistance, out Vector3 listener)
+        /// <summary>
+        /// Reichweiten-Falloff des Geraets (1 - d/max)^2 - aber auf dem akustischen WEG,
+        /// nicht mehr auf der Luftlinie (E3): Steht eine Wand oder geschlossene Tuer
+        /// zwischen Geraet und Zuhoerer, verlaengert sich der hoerbare Weg. Zusaetzlich
+        /// liefert die Welt-Auswertung worldVolume (Tuer/Wand/Zonen-Daempfung) und
+        /// worldLowPassHz (dumpf), die LateUpdate in die Geraete-Regelung einmischt.
+        /// </summary>
+        private float EvaluateWorldFalloff(
+            bool active,
+            out float listenerDistance,
+            out float pathDistance,
+            out bool usedGraph,
+            out Vector3 listener)
         {
+            listenerDistance = -1f;
+            pathDistance = -1f;
+            usedGraph = false;
+            worldVolume = 1f;
+            worldLowPassHz = VoiceSample.NoLowPass;
+            listener = default;
+
             // Kein bekannter Zuhoerer-Ort: lieber still als versehentlich auf voller
             // Lautstaerke senden (frueher wurde hier faelschlich 1f/volle Lautstaerke
             // zurueckgegeben).
-            if (!TryListenerPosition(out listener))
+            if (!active || !TryListenerPosition(out Vector3 listenerPos))
             {
-                rawDistance = -1f;
                 return 0f;
             }
 
+            listener = listenerPos;
+            listenerDistance = Vector3.Distance(listenerPos, transform.position);
+
+            var settings = EarshotVoiceSettings.Instance;
+            var profile = settings != null ? settings.VoiceProfile : null;
+            var world = worldPipeline.EvaluateWorldAttenuation(
+                profile,
+                listenerPos,
+                transform.position,
+                Time.unscaledDeltaTime,
+                out var context);
+
+            worldVolume = world.Volume;
+            worldLowPassHz = world.LowPassHz;
+            usedGraph = context.UsedGraph;
+            pathDistance = context.HearingDistance > 0f
+                ? context.HearingDistance
+                : listenerDistance;
+
             float max = Mathf.Max(1f, walkie.MaxHearingDistance);
-            rawDistance = Vector3.Distance(listener, transform.position);
-            if (rawDistance >= max) return 0f;
-            float d = Mathf.Max(rawDistance, MinPerceivedDistance);
+            float d = Mathf.Max(pathDistance, MinPerceivedDistance);
             float t = 1f - Mathf.Clamp01(d / max);
             return t * t;
+        }
+
+        private void SmoothWorldLowPass()
+        {
+            // Logarithmisch nachziehen (Tonhoehe wird so wahrgenommen), damit eine
+            // zufallende Tuer nicht im Filter knackt.
+            float from = Mathf.Max(1f, smoothedWorldLowPassHz);
+            float to = Mathf.Max(1f, worldLowPassHz);
+            float t = 1f - Mathf.Exp(-Time.unscaledDeltaTime * WorldFilterSmoothPerSecond);
+            smoothedWorldLowPassHz = Mathf.Exp(Mathf.Lerp(Mathf.Log(from), Mathf.Log(to), t));
         }
 
         private void ReportOutputDiagnostic(
@@ -351,6 +424,8 @@ namespace Earshot.Voice
             float targetVolume,
             float falloff,
             float listenerDistance,
+            float pathDistance,
+            bool usedGraph,
             Vector3 listenerPosition)
         {
             bool sidetone = IsSidetoneMode();
@@ -359,8 +434,8 @@ namespace Earshot.Voice
             string stream = sidetone
                 ? WalkieRadioBus.LocalSidetoneStreamId
                 : WalkieRadioBus.GetAudibleRemote(walkie.ChannelId);
-            string reason = ResolveDiagnosticReason(pathActive, listenerDistance);
-            string state = $"{mode}|{audible}|{reason}|{stream}";
+            string reason = ResolveDiagnosticReason(pathActive, listenerDistance, pathDistance);
+            string state = $"{mode}|{audible}|{reason}|{stream}|{usedGraph}";
             float now = Time.unscaledTime;
 
             bool changed = !string.Equals(
@@ -377,23 +452,28 @@ namespace Earshot.Voice
             string distanceText = listenerDistance >= 0f
                 ? listenerDistance.ToString("0.00") + "m"
                 : "unbekannt";
+            string pathText = pathDistance >= 0f
+                ? pathDistance.ToString("0.00") + "m"
+                : "unbekannt";
 
             VoiceSessionLog.Note(
                 $"WALKIE OUTPUT {(audible ? "AN" : "AUS")}: device='{walkie.gameObject.name}', " +
                 $"channel='{walkie.ChannelId}', mode={mode}, stream='{stream}', reason={reason}, " +
-                $"distance={distanceText}/{walkie.MaxHearingDistance:0.00}m, falloff={falloff:0.000}, " +
+                $"distance={distanceText}/{walkie.MaxHearingDistance:0.00}m, path={pathText}, " +
+                $"graph={usedGraph}, worldVol={worldVolume:0.000}, falloff={falloff:0.000}, " +
                 $"target={targetVolume:0.000}, actual={smoothedVolume:0.000}, master={GlobalListenerVolume:0.000}, " +
                 $"listener={listenerPosition.ToString("F2")}, speaker={transform.position.ToString("F2")}, " +
-                $"listeners={listenerCount}, HP={walkie.HighPassHz:0}Hz, LP={walkie.LowPassHz:0}Hz, " +
+                $"listeners={listenerCount}, HP={walkie.HighPassHz:0}Hz, " +
+                $"LP={Mathf.Min(walkie.LowPassHz, smoothedWorldLowPassHz):0}Hz, " +
                 $"crunch={walkie.RadioCrunch:0.00}, delay={walkie.TransmissionDelaySeconds:0.000}s");
         }
 
-        private string ResolveDiagnosticReason(bool pathActive, float listenerDistance)
+        private string ResolveDiagnosticReason(bool pathActive, float listenerDistance, float pathDistance)
         {
             if (!walkie.PoweredOn) return "POWER_OFF";
             if (walkie.IsTransmitting) return "OWN_DEVICE_TX";
             if (listenerDistance < 0f) return "NO_LISTENER";
-            if (listenerDistance >= walkie.MaxHearingDistance) return "OUT_OF_RANGE";
+            if (pathDistance >= walkie.MaxHearingDistance) return "OUT_OF_RANGE";
             if (IsSidetoneMode() && listenerDistance < MinSidetoneSelfDistance)
             {
                 return "SELF_DISTANCE_GUARD";
@@ -449,7 +529,14 @@ namespace Earshot.Voice
         {
             if (walkie == null) return;
             if (highPass != null) highPass.cutoffFrequency = walkie.HighPassHz;
-            if (lowPass != null) lowPass.cutoffFrequency = walkie.LowPassHz;
+            if (lowPass != null)
+            {
+                // Der Geraeteton haengt in der Welt (v16.7): Dumpf durch geschlossene
+                // Tueren und Waende unterbiegt das eigene Funk-EQ nie - es gilt der
+                // dumpfere der beiden Werte. Geglattet, damit nichts knackt.
+                float cutoff = Mathf.Min(walkie.LowPassHz, smoothedWorldLowPassHz);
+                lowPass.cutoffFrequency = Mathf.Max(VoiceSample.NoHighPass, cutoff);
+            }
         }
 
         private void OnAudioFilterRead(float[] data, int channels)

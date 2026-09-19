@@ -95,11 +95,52 @@ namespace Earshot.Voice
             return sample;
         }
 
+        /// <summary>
+        /// Welt-Daempfung fuer Geraetetoene (z.B. Walkie-Lautsprecher, Sidetone): derselbe
+        /// Messweg und dieselbe Modifier-Kette wie fuer die Stimme - Zonen, Graph-Pfad,
+        /// Tueren, Waende. Bewusst NICHT uebernommen werden die Entfernungsdaempfung des
+        /// Profils und dessen Reichweiten-Cutoff: Die Reichweite eines Geraets ist eine
+        /// Geraete-Eigenschaft, der Aufrufer daempft selbst auf seine Distanz (E3/L3).
+        /// </summary>
+        public VoiceSample EvaluateWorldAttenuation(
+            VoiceProfile profile,
+            Vector3 listenerPosition,
+            Vector3 sourcePosition,
+            float deltaTime,
+            out VoiceContext context)
+        {
+            var sample = VoiceSample.Default;
+            context = default;
+
+            if (profile == null)
+            {
+                return sample;
+            }
+
+            // Kein RememberPath: Geraete-Auswertungen laufen staendig und wuerden die
+            // Debug-Anzeige ("letzter Weg") zwischen Sprecher- und Geraetepfad flackern
+            // lassen. Das HUD gehoert der Stimmen-Diagnose.
+            context = BuildContext(profile, listenerPosition, sourcePosition, deltaTime, rememberPath: false);
+
+            var modifiers = profile.SortedModifiers;
+            for (int i = 0; i < modifiers.Count; i++)
+            {
+                var modifier = modifiers[i];
+                if (modifier == null || !modifier.Enabled) continue;
+                if (modifier.Order == VoiceModifierOrder.Distance) continue;
+                modifier.Apply(in context, ref sample);
+            }
+
+            sample.Clamp();
+            return sample;
+        }
+
         private VoiceContext BuildContext(
             VoiceProfile profile,
             Vector3 listenerPosition,
             Vector3 speakerPosition,
-            float deltaTime)
+            float deltaTime,
+            bool rememberPath = true)
         {
             var context = new VoiceContext
             {
@@ -120,7 +161,7 @@ namespace Earshot.Voice
             context.ApparentPosition = speakerPosition;
 
             MeasureLineOfSight(profile, ref context);
-            TryApplyGraph(ref context);
+            TryApplyGraph(ref context, rememberPath);
             FillApparentDirection(ref context);
 
             return context;
@@ -131,17 +172,21 @@ namespace Earshot.Voice
         /// gilt immer der Laufweg — nicht die Luftlinie durch Decke oder Schacht.
         /// Freie Sicht in demselben Raum bleibt Luftlinie. Ohne Graph bleibt Occlusion.
         /// </summary>
-        private void TryApplyGraph(ref VoiceContext context)
+        private void TryApplyGraph(ref VoiceContext context, bool rememberPath)
         {
             if (context.SameZone ||
                 context.ListenerZone == null || context.SpeakerZone == null)
             {
-                VoiceGraph.RememberPath(
-                    context.ListenerPosition,
-                    context.SpeakerPosition,
-                    null,
-                    context.HearingDistance,
-                    usedGraph: false);
+                if (rememberPath)
+                {
+                    VoiceGraph.RememberPath(
+                        context.ListenerPosition,
+                        context.SpeakerPosition,
+                        null,
+                        context.HearingDistance,
+                        usedGraph: false);
+                }
+
                 return;
             }
 
@@ -151,12 +196,16 @@ namespace Earshot.Voice
                     graphPortals,
                     out _))
             {
-                VoiceGraph.RememberPath(
-                    context.ListenerPosition,
-                    context.SpeakerPosition,
-                    null,
-                    context.HearingDistance,
-                    usedGraph: false);
+                if (rememberPath)
+                {
+                    VoiceGraph.RememberPath(
+                        context.ListenerPosition,
+                        context.SpeakerPosition,
+                        null,
+                        context.HearingDistance,
+                        usedGraph: false);
+                }
+
                 return;
             }
 
@@ -194,12 +243,15 @@ namespace Earshot.Voice
                 ? VoiceGraph.PortalPosition(graphPortals[0])
                 : context.SpeakerPosition;
 
-            VoiceGraph.RememberPath(
-                context.ListenerPosition,
-                context.SpeakerPosition,
-                graphPortals,
-                context.HearingDistance,
-                usedGraph: true);
+            if (rememberPath)
+            {
+                VoiceGraph.RememberPath(
+                    context.ListenerPosition,
+                    context.SpeakerPosition,
+                    graphPortals,
+                    context.HearingDistance,
+                    usedGraph: true);
+            }
         }
 
         private static void FillApparentDirection(ref VoiceContext context)
