@@ -22,6 +22,15 @@ namespace Earshot.Voice
         private bool initialized;
         private bool micMuted;
 
+        /// <summary>
+        /// v16-Diagnose-Schalter (default AUS): Schaltet die Vivox-native
+        /// Wiedergabe nach dem Login stumm. Nur fuer die gezielte Gegenprobe
+        /// der Vivox-native-These aktivieren — sie stoert F8/F7-Proben und
+        /// stummt Teilnehmer ohne Tap. Siehe Begründung in EnsureLoggedInAsync
+        /// und docs/walkie-talkie-debug-history.md (Abschnitt v16-Meta).
+        /// </summary>
+        public static bool DiagnosticMuteVivoxNativeOutputOnLogin = false;
+
         public string DisplayName => "Unity Vivox";
 
         public bool IsConnected => !string.IsNullOrEmpty(proximityChannelName);
@@ -166,6 +175,39 @@ namespace Earshot.Voice
             }
         }
 
+        /// <summary>
+        /// v16-Diagnose: Teilnehmer des Proximity-Kanals. Der Proximity-Kanal war
+        /// der blinde Fleck der v13-Auswertung (dort wurde nur der Funkkanal
+        /// geloggt) — hier erscheint jedes Gruppenmitglied mit Namen.
+        /// </summary>
+        public void CopyProximityChannelParticipantIds(List<string> intoPlayerIds)
+        {
+            if (intoPlayerIds == null) return;
+            intoPlayerIds.Clear();
+
+            try
+            {
+                if (VivoxService.Instance == null ||
+                    string.IsNullOrEmpty(proximityChannelName) ||
+                    !VivoxService.Instance.ActiveChannels.TryGetValue(
+                        proximityChannelName, out var list))
+                {
+                    return;
+                }
+
+                for (int i = 0; i < list.Count; i++)
+                {
+                    var participant = list[i];
+                    if (participant == null) continue;
+                    intoPlayerIds.Add(participant.IsSelf ? "ICH" : participant.PlayerId);
+                }
+            }
+            catch (Exception)
+            {
+                // Diagnose-Pfad darf den Sync niemals werfen.
+            }
+        }
+
         public async Task EnsureRadioChannelAsync(string logicalChannelId)
         {
             if (!IsConnected) return;
@@ -267,6 +309,28 @@ namespace Earshot.Voice
 
             EarshotVoiceLog.Info("Anmeldung bei Vivox laeuft.");
             await VivoxService.Instance.LoginAsync(options);
+
+            // v16-Diagnose-Option (default AUS): Vivox-NATIVE Wiedergabe nach Login
+            // stumm schalten. Urspruengliche These: 'Hotel Game' schlug im sndvol
+            // aus, waehrend masterPeak=0 (F12) — Vivox-native als Leak-Kandidat.
+            // NACHTRAG 2026-09-19: Diese These ist geschaechtert — (a) ist nicht
+            // dokumentiert, dass F12 WAHREND der sndvol-Beobachtung aktiv war,
+            // (b) kann ein Solo-Funkkanal (1 Teilnehmer [ICH]) nichts zurueck-
+            // spiegeln, und (c) erklaert die Parsec-Host-App (Mic-Playback auf dem
+            // Host-Default-Output, siehe Debug-Historie v16-Meta) die sndvol-
+            // Ausschlaege einfacher. Der Auto-Mute bleibt deshalb Diagnose-Mittel:
+            // Er STOERT spaetere Gegenproben (F8/F7 werden bedeutungslos, ein
+            // Teilnehmer ohne Tap waere stumm) und ist daher standardmäßig deaktiv.
+            // Nur gezielt einschalten (Code oder Inspector), wenn die Vivox-native
+            // These nach dem physischen Host-Test wieder auf dem Tisch liegt.
+            if (DiagnosticMuteVivoxNativeOutputOnLogin)
+            {
+                VivoxService.Instance.MuteOutputDevice();
+                VoiceSessionLog.Note(
+                    "v16-DIAGNOSE: Vivox-native Ausgabe STUMM (MuteOutputDevice, " +
+                    "Diagnose-Flag an). F7 (WalkieSidetoneCapture) schaltet sie fuer " +
+                    "die Gegenprobe wieder AN.");
+            }
         }
 
         private void AttachExistingParticipants(string channel)

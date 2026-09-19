@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using Unity.Services.Vivox;
 using Unity.Services.Vivox.AudioTaps;
 using UnityEngine;
 
@@ -10,7 +12,7 @@ namespace Earshot.Voice
     [AddComponentMenu("")]
     internal sealed class WalkieSidetoneCapture : MonoBehaviour
     {
-        private const string DiagnosticRevision = "leak-hunt-v15";
+        private const string DiagnosticRevision = "leak-hunt-v16";
 
         private VivoxCaptureSourceTap captureTap;
         private WalkieVivoxCaptureFeed feed;
@@ -39,6 +41,32 @@ namespace Earshot.Voice
         private string[] txChannelSnapshot = new string[0];
         private float nextTxSnapshotRefresh;
 
+        // v16: Passive RX-Sonden (VivoxChannelAudioTap) fuer Funk- und
+        // Proximity-Kanal. Sie messen, was die Vivox-Engine auf dem Kanal
+        // EMPFAENGT — ihre AudioSource bleibt auf volume=0 und ist damit selbst
+        // nie hoerbar. Steigt funkRx waehrend PTT+Sprechen, empfaengt die Engine
+        // das ECHO der eigenen Sendung zurueck und spielt es nativ ab.
+        private GameObject radioRxObject;
+        private VivoxChannelAudioTap radioRxTap;
+        private AudioSource radioRxSource;
+        private string lastRadioRxChannel;
+        private GameObject proxRxObject;
+        private VivoxChannelAudioTap proxRxTap;
+        private AudioSource proxRxSource;
+        private string lastProxRxChannel;
+        private float nextRxDiagnostic;
+        private readonly List<string> radioRxScratch = new List<string>(4);
+        private readonly List<string> proxParticipantScratch = new List<string>(4);
+        private readonly List<string> radioParticipantScratch = new List<string>(4);
+        private readonly float[] rxRingBuffer = new float[9600];
+
+        // VivoxAudioProcessor-Interna fuer die RX-Sonden (Reflektion, identisch
+        // zu WalkieVivoxCaptureFeed — Feldnamen aus VivoxAudioProcessor.cs).
+        private static System.Reflection.FieldInfo rxProcessorField;
+        private static System.Reflection.FieldInfo rxWritePointerField;
+        private static System.Reflection.FieldInfo rxStreamClipField;
+        private static bool rxReflectionResolved;
+
         internal static WalkieSidetoneCapture EnsureOn(VoiceRuntime runtime)
         {
             if (runtime == null) return null;
@@ -56,6 +84,7 @@ namespace Earshot.Voice
             WalkieTalkieRegistry.EnsureLocalTransmitStillValid();
             EnsureCaptureTap();
             TryPinTapToActiveChannel();
+            EnsureRxTaps();
             EnforceSilentDirectOutput();
             HandleDiagnosticHotkeys();
 
@@ -103,6 +132,8 @@ namespace Earshot.Voice
                 feed.ConsumeDiagnostics(out int pulls, out int pulledFrames, out int signalBlocks, out float peak);
                 float directOutputPeak = ReadDirectOutputPeak();
                 ReadMasterMix(out float masterPeak, out float masterRms);
+                float funkRxPeak = ReadTapRingPeak(radioRxTap);
+                float proxRxPeak = ReadTapRingPeak(proxRxTap);
                 RefreshTxChannelSnapshot();
                 bool tapInTx = ContainsChannel(txChannelSnapshot, captureTap.ChannelName);
                 VoiceSessionLog.Note(
@@ -112,11 +143,249 @@ namespace Earshot.Voice
                     $"pulls={pulls}, pulledFrames={pulledFrames}, " +
                     $"signalBlocks={signalBlocks}, clipPeak={peak:0.0000}, " +
                     $"directOutputPeak={directOutputPeak:0.000000}, " +
+                    $"funkRx={funkRxPeak:0.000000}, proxRx={proxRxPeak:0.000000}, " +
                     $"masterPeak={masterPeak:0.000000}, masterRms={masterRms:0.000000}, " +
                     $"sourcePlaying={tapSource.isPlaying}, " +
                     $"sourceMute={tapSource.mute}, sourceVolume={tapSource.volume:0.000}, " +
                     $"channel='{channel}', revision='{DiagnosticRevision}'");
                 LogAudioSourceInventory();
+            }
+
+            LogVivoxRxProbe();
+        }
+
+        /// <summary>
+        /// v16: Legt passive RX-Sonden (VivoxChannelAudioTap) auf den Funk- und den
+        /// Proximity-Kanal. Die Sonden messen ausschliesslich, was die Vivox-Engine
+        /// auf dem Kanal empfaengt; ihre AudioSource bleibt auf volume=0 und ist
+        /// damit selbst nie hoerbar. Steigt funkRx waehrend Sendetaste+Sprechen,
+        /// empfaengt die Engine die eigene Sendung als Echo zurueck — abgespielt
+        /// wird es dann ueber die native Engine-Ausgabe (Zustand: vivoxOutMuted in
+        /// der VIVOX-RX-Zeile, Schalter: F7).
+        /// </summary>
+        private void EnsureRxTaps()
+        {
+            if (!EarshotVoice.IsConnected) return;
+
+            var vivoxBackend = VoiceRuntime.Instance != null
+                ? VoiceRuntime.Instance.Backend as VivoxVoiceBackend
+                : null;
+            if (vivoxBackend == null) return;
+
+            string proximity = vivoxBackend.ProximityChannelName;
+            if (!string.IsNullOrEmpty(proximity) &&
+                !string.Equals(lastProxRxChannel, proximity, System.StringComparison.OrdinalIgnoreCase))
+            {
+                lastProxRxChannel = proximity;
+                RebuildChannelTap(
+                    ref proxRxObject, ref proxRxTap, ref proxRxSource, proximity, "Proximity-RX");
+            }
+
+            radioRxScratch.Clear();
+            vivoxBackend.CopyJoinedRadioChannels(radioRxScratch);
+            string radioVivox = radioRxScratch.Count > 0
+                ? WalkieRules.ToVivoxRadioChannel(radioRxScratch[0])
+                : null;
+            if (!string.IsNullOrEmpty(radioVivox) &&
+                !string.Equals(lastRadioRxChannel, radioVivox, System.StringComparison.OrdinalIgnoreCase))
+            {
+                lastRadioRxChannel = radioVivox;
+                RebuildChannelTap(
+                    ref radioRxObject, ref radioRxTap, ref radioRxSource, radioVivox, "Funk-RX");
+            }
+        }
+
+        private void RebuildChannelTap(
+            ref GameObject tapObjectRef,
+            ref VivoxChannelAudioTap tapRef,
+            ref AudioSource sourceRef,
+            string vivoxChannelName,
+            string label)
+        {
+            try
+            {
+                if (tapObjectRef != null) Destroy(tapObjectRef);
+
+                tapObjectRef = new GameObject("Earshot Vivox " + label + " Sonde");
+                tapObjectRef.transform.SetParent(transform, false);
+
+                sourceRef = tapObjectRef.AddComponent<AudioSource>();
+                sourceRef.playOnAwake = false;
+                sourceRef.loop = false;
+                sourceRef.spatialBlend = 0f;
+                sourceRef.dopplerLevel = 0f;
+                // Messsonde: niemals hoerbar. Der Ring-Buffer-Clip des Taps wird
+                // davon unberuehrt weiter gefuellt (v12-Beweislage) und per
+                // Reflektion ausgelesen.
+                sourceRef.volume = 0f;
+                sourceRef.mute = false;
+
+                tapRef = tapObjectRef.AddComponent<VivoxChannelAudioTap>();
+                // Der ChannelName-Setter deaktiviert Auto-Acquire und registriert
+                // den Tap gezielt auf den benannten Kanal.
+                tapRef.ChannelName = vivoxChannelName;
+
+                VoiceSessionLog.Note(
+                    $"WALKIE RX-SONDE '{label}' auf Kanal '{vivoxChannelName}': " +
+                    $"TapId={tapRef.TapId} (misst EMPFANGENEN Kanal-Audio, Ausgabe " +
+                    $"volume=0 — die Sonde selbst ist nie hoerbar)");
+            }
+            catch (System.Exception ex)
+            {
+                if (tapObjectRef != null) Destroy(tapObjectRef);
+                tapObjectRef = null;
+                tapRef = null;
+                sourceRef = null;
+                VoiceSessionLog.Alert(
+                    $"WALKIE RX-SONDE '{label}' fehlgeschlagen: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// v16: Periodischer Beweis-Report (alle 2 s, unabhaengig von PTT):
+        /// - funkRx/proxRx: Was die Engine auf Funk-/Proximity-Kanal empfaengt.
+        /// - vivoxOutMuted/vivoxOutDev/vivoxOutVol: Zustand der nativen Ausgabe.
+        /// - masterPeak/masterRms: Unity-Endmix (Sonden-Validierung: muss bei
+        ///   hörbarem Spiel-Ton >0 sein, bei F12 exakt 0).
+        /// - proxKanal/funkKanal: Teilnehmer-Listen (Proximity war blinder Fleck).
+        /// </summary>
+        private void LogVivoxRxProbe()
+        {
+            if (Time.unscaledTime < nextRxDiagnostic) return;
+            nextRxDiagnostic = Time.unscaledTime + 2f;
+            if (!EarshotVoice.IsConnected) return;
+
+            var vivoxBackend = VoiceRuntime.Instance != null
+                ? VoiceRuntime.Instance.Backend as VivoxVoiceBackend
+                : null;
+
+            float funkRx = ReadTapRingPeak(radioRxTap);
+            float proxRx = ReadTapRingPeak(proxRxTap);
+            ReadMasterMix(out float masterPeak, out float masterRms);
+
+            proxParticipantScratch.Clear();
+            if (vivoxBackend != null)
+            {
+                vivoxBackend.CopyProximityChannelParticipantIds(proxParticipantScratch);
+            }
+
+            radioParticipantScratch.Clear();
+            if (radioRxScratch.Count > 0 && vivoxBackend != null)
+            {
+                vivoxBackend.CopyRadioChannelParticipantIds(
+                    radioRxScratch[0], radioParticipantScratch);
+            }
+
+            bool outMuted = VivoxService.Instance != null &&
+                            VivoxService.Instance.IsOutputDeviceMuted;
+            int outVol = VivoxService.Instance != null
+                ? VivoxService.Instance.OutputDeviceVolume
+                : -1;
+            string outDev = EarshotVoice.ActiveOutputDeviceName;
+
+            VoiceSessionLog.Note(
+                $"WALKIE VIVOX RX: funkRx={funkRx:0.000000}, proxRx={proxRx:0.000000}, " +
+                $"vivoxOutMuted={outMuted}, vivoxOutDev='{outDev}', vivoxOutVol={outVol}, " +
+                $"funkRxPlaying={(radioRxSource != null && radioRxSource.isPlaying)}, " +
+                $"proxRxPlaying={(proxRxSource != null && proxRxSource.isPlaying)}, " +
+                $"listenerVol={AudioListener.volume:0.000}, " +
+                $"masterPeak={masterPeak:0.000000}, masterRms={masterRms:0.000000}, " +
+                $"proxKanal=[{string.Join(", ", proxParticipantScratch)}], " +
+                $"funkKanal=[{string.Join(", ", radioParticipantScratch)}], " +
+                $"ptt={WalkieTalkieRegistry.LocalIsTransmitting}, " +
+                $"revision='{DiagnosticRevision}'");
+        }
+
+        /// <summary>
+        /// v16: Peak des Ring-Buffer-Clips eines Vivox-Taps (Reflektion auf
+        /// VivoxAudioProcessor.m_streamClip/m_writePointer — identischer
+        /// Mechanismus wie WalkieVivoxCaptureFeed, v12). Liefert -1, wenn
+        /// Tap/Clip fehlen, 0 bei Stille und &gt;0 bei empfangenem Audio.
+        /// </summary>
+        private float ReadTapRingPeak(VivoxAudioTap tap)
+        {
+            if (tap == null || tap.TapId < 0) return -1f;
+
+            try
+            {
+                ResolveRxReflection();
+
+                object processor = rxProcessorField != null
+                    ? rxProcessorField.GetValue(tap)
+                    : null;
+                if (processor == null) return -1f;
+
+                AudioClip clip = rxStreamClipField != null
+                    ? rxStreamClipField.GetValue(processor) as AudioClip
+                    : null;
+                if (clip == null) return -1f;
+
+                int writePointer = rxWritePointerField != null
+                    ? (int)rxWritePointerField.GetValue(processor)
+                    : -1;
+                int totalFrames = clip.samples;
+                int channels = clip.channels > 0 ? clip.channels : 1;
+                if (totalFrames <= 0 || writePointer < 0) return -1f;
+
+                int readFrames = System.Math.Min(rxRingBuffer.Length / channels, totalFrames);
+                int startFrame = writePointer - readFrames;
+                if (startFrame < 0) startFrame += totalFrames;
+
+                int firstFrames = System.Math.Min(readFrames, totalFrames - startFrame);
+                float peak = 0f;
+                if (firstFrames > 0)
+                {
+                    clip.GetData(rxRingBuffer, startFrame * channels);
+                    peak = AbsMax(rxRingBuffer, firstFrames * channels);
+                }
+
+                int wrapFrames = readFrames - firstFrames;
+                if (wrapFrames > 0)
+                {
+                    clip.GetData(rxRingBuffer, 0);
+                    float wrapPeak = AbsMax(rxRingBuffer, wrapFrames * channels);
+                    if (wrapPeak > peak) peak = wrapPeak;
+                }
+
+                return peak;
+            }
+            catch
+            {
+                return -1f;
+            }
+        }
+
+        private static float AbsMax(float[] data, int sampleCount)
+        {
+            float peak = 0f;
+            int limit = System.Math.Min(sampleCount, data.Length);
+            for (int i = 0; i < limit; i++)
+            {
+                float absolute = data[i] < 0f ? -data[i] : data[i];
+                if (absolute > peak) peak = absolute;
+            }
+            return peak;
+        }
+
+        private static void ResolveRxReflection()
+        {
+            if (rxReflectionResolved) return;
+            rxReflectionResolved = true;
+
+            try
+            {
+                var flags = System.Reflection.BindingFlags.NonPublic |
+                            System.Reflection.BindingFlags.Instance;
+                rxProcessorField = typeof(VivoxAudioTap).GetField("m_AudioProcessor", flags);
+                var processorType = rxProcessorField != null
+                    ? rxProcessorField.FieldType
+                    : null;
+                rxWritePointerField = processorType?.GetField("m_writePointer", flags);
+                rxStreamClipField = processorType?.GetField("m_streamClip", flags);
+            }
+            catch
+            {
+                // Felder bleiben null -> ReadTapRingPeak meldet -1.
             }
         }
 
@@ -456,6 +725,37 @@ namespace Earshot.Voice
                     VoiceSessionLog.Alert(
                         "WALKIE DIAGNOSE F12: Unity-Gesamtausgabe wiederhergestellt (" +
                         diagnosticMasterVolumeBefore.ToString("0.000") + ").");
+                }
+            }
+
+            // v16: F7 toggelt die VIVOX-NATIVE Wiedergabe (Engine-Ausgabegeraet).
+            // Die These 'Vivox-native ist der Leak' gilt seit dem Meta-Review
+            // 2026-09-19 als geschaechtert (Solo-Kanal kann nichts reflektieren;
+            // sndvol-Ausschlaege haben eine einfachere Erklaerung — siehe
+            // Debug-Historie, Abschnitt v16-Meta). F7 bleibt als Gegenproben-
+            // Werkzeug: AN = native Ausgabe aktiv (kehrt die Selbsthoerung
+            // zurueck, waere die These doch bewiesen), AUS = Engine-Mute.
+            // Hinweis: Der optionale Auto-Mute nach Login ist default AUS
+            // (VivoxVoiceBackend.DiagnosticMuteVivoxNativeOutputOnLogin).
+            if (Input.GetKeyDown(KeyCode.F7))
+            {
+                bool muted = VivoxService.Instance != null &&
+                             VivoxService.Instance.IsOutputDeviceMuted;
+                if (muted)
+                {
+                    VivoxService.Instance.UnmuteOutputDevice();
+                    VoiceSessionLog.Alert(
+                        "WALKIE DIAGNOSE F7: Vivox-NATIVE Ausgabe WIEDER AN. Hoerst du " +
+                        "deine Stimme bei gehaltener Sendetaste jetzt wieder, ist " +
+                        "bewiesen: Die Engine spielt Empfangenes (eigenes Funk-Echo, " +
+                        "funkRx>0) nativ ins Ausgabegeraet. Nochmal F7 = wieder stumm.");
+                }
+                else
+                {
+                    VivoxService.Instance.MuteOutputDevice();
+                    VoiceSessionLog.Alert(
+                        "WALKIE DIAGNOSE F7: Vivox-native Ausgabe STUMM (Engine-Mute). " +
+                        "Alle Stimmen laufen weiterhin ueber den Unity-Mix.");
                 }
             }
         }
