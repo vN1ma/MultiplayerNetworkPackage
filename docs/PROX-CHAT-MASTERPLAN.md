@@ -104,19 +104,62 @@ voll tunbar, klein. Steam Audio nur falls Phase 5 einen konkreten Bedarf zeigt.
   Bereiche ohne Zone — als Konsolen-/Fenster-Ausgabe.
 - Teleport-Türen (`TeleportDoor`) bekommen KEIN Standard-Portal (siehe Phase 3).
 
+**Sicherheitskonzept gegen „Tool zerstört die Szene":**
+- Alles, was das Tool erzeugt, landet unter EINEM Wurzel-Container pro Szene
+  (`_EarshotAudioGraph`). Zonen sind NEUE Kind-Objekte — die bestehende Geometrie
+  (Wände, Böden, Meshes) wird nicht angefasst, nicht verschoben, nicht umbenannt.
+- Einzige Ausnahme: an `SimpleDoor`-Objekten werden genau zwei Komponenten angehängt
+  (`VoicePortal` + `SimpleDoorPortalLink`). Der Tool-Lauf listet vorab jede geplante
+  Änderung als Preview/Dry-Run (nur Log, nichts wird geschrieben).
+- **„Alles entfernen"-Button:** entfernt den Container UND exakt die angehängten
+  Tool-Komponenten — nichts anderes. Nachweisbar über Markierung (z. B. ein leeres
+  Marker-Skript oder Namenskonvention).
+- **Idempotent:** erneut Ausführen überschreibt/vervielfacht nichts (vorhandene
+  Zonen/Portale werden erkannt und aktualisiert statt dupliziert).
+- Undo läuft über Unitys Undo-System; und die Szene liegt im Git → worst case
+  `git checkout` der Szene. Doppeltes Netz.
+
+**Verfahren „Zone aus Marker" — Schritt für Schritt (und warum genau so):**
+1. Pro Raum einmal `Create Empty`, in die Raummitte ziehen, sinnvoll benennen
+   (z. B. `Zone_Zimmer101`). Das ist die komplette Handarbeit — Sekunden pro Raum.
+2. Marker selektieren → Tool-Button „Zone aus Marker": Das Tool raycastet vom Marker aus
+   nach unten (Boden), oben (Decke) und 4× horizontal (Wände — Möbel-Collider werden per
+   Layer übersprungen). Aus den Treffern berechnet es die Box, die den Innenraum füllt,
+   und erzeugt ein Kind-Objekt mit `BoxCollider (Is Trigger)` + `VoiceZone` unter dem
+   Container. Der Marker bleibt als Referenz stehen: Layout geändert → Marker (notfalls)
+   verschieben → Button erneut → Zone wird aktualisiert, nicht dupliziert.
+3. **Warum ein Marker statt Vollautomation:** Ein Punkt im Rauminneren definiert den Raum
+   eindeutig, und die Wände dazu zu finden ist per Raycast robust. Ohne diesen Hinweis
+   wäre „Was ist ein Raum?" mehrdeutig (offene Durchgänge, Nischen, angrenzende Flure,
+   Möbel) — genau diese Mehrdeutigkeit macht Vollautomation fehleranfällig.
+   **Warum nicht per Hand boxen:** ~15 Werte pro Raum abtippen statt 1 Punkt setzen,
+   und nach jeder der vielen bevorstehenden Layout-Änderungen wieder von vorn.
+
 ### Phase 3 — Hotel-Rollout
 - Zonen für Lobby, Flure, 10 Gästezimmer, Treppenhaus, Nebenräume; Portale für die 15
   physischen Türen (`SimpleDoor`).
-- **Treppenhaus:** offene Treppe = ein zusammenhängender Luftraum. Zwei legitime Varianten:
-  (a) **eine Zone über beide Etagen** (Schall steigt frei mit — physikalisch richtig für offene
-  Treppen), oder (b) Etagen-Zonen + `VoicePortalKind.Stair`-Portale (wenn Etagen getrennt
-  klingen sollen). Entscheidung D1.
-- **Aufzug:** eigene Mini-Zone; Türen als Portale oder ganz ohne Portal (= schalldicht).
-  Entscheidung D2.
-- **Teleport-Brücken (E4):** `RandomRoomAssigner`/`FixedDoorManager` verkabeln bei Zuweisung
-  automatisch akustische Portale (Hoteltür-Zone ↔ Raum-Zone, mit `travelLength`-Aufschlag).
-  Alle Ziele liegen nachweislich in derselben Szene (RandomRoomAssigner arbeitet mit
-  Szenen-Transforms) → technisch machbar über Phase 1a.
+- **Treppenhaus (D1 — entschieden 2026-09-19):** Der Treppenschacht wird EINE eigene
+  vertikale Zone über alle Etagen; jeder Flur ist seine eigene Zone; Flur ↔ Treppenhaus
+  sind daueroffene Portale (openness fest 1). Effekt: Stehen beide IM Treppenhaus
+  (z. B. Etage 30 vs. 25), sind sie in derselben Zone → freie Luftlinie + hoher
+  Reverb-Wert der Treppenhaus-Zone = es hallt durchs Haus. Stehen sie in den Fluren,
+  läuft der Ton Flur → Portal → Treppenhaus → Portal → Flur, und die Hörweite ist der
+  lange Laufweg → deutlich leiser. Wichtig: **Zonen verschmelzen NICHT, nur weil sie
+  verbunden sind** — Portale halten sie getrennt. Damit werden 30 Flure + Treppenhaus
+  eben NICHT ein Raum, sondern 31 Zonen; der Zähler wächst linear pro Etage (1 Flur-Zone
+  + 1 Portal) → Dijkstra bleibt trivial. Ehrliche Einschränkung: „Hallen" ist ein
+  Reverb-Mischwert (diffuser Klang), kein echtes Echo mit Nachhallzeit — echte
+  Late-Reverb wäre Steam-Audio-Klasse (Phase 5).
+- **Aufzug (D2 — entschieden):** eigene Mini-Zone; Aufzugtüren als Portale. Geschlossene
+  Tür = gedämpft hörbar (`closedMuffle`/`closedVolume` des Portals), öffnet sie sich,
+  wird der Fahrstuhlinhalt normal hörbar.
+- **Teleport-Brücken (E4, D3 — entschieden):** `RandomRoomAssigner`/`FixedDoorManager`
+  verkabeln bei Zuweisung automatisch akustische Portale (Hoteltür-Zone ↔ Raum-Zone).
+  Verhalten EINHEITLICH über einen zentralen Stellregler in `VoiceHearingTuning`
+  (Startwert: `travelLength`-Aufschlag +4 m — im Flur 4 m vor der Theme-Tür hört man
+  den Kollegen auf der anderen Seite noch; Dämpfungsverhalten analog zu normalen Türen).
+  Ein Wert geändert → alle Theme-Türen verhalten sich beim nächsten Lauf gleich.
+  Technisch möglich über Phase 1a; alle Ziele liegen nachweislich in derselben Szene.
 
 ### Phase 4 — Prozedurale/random Stockwerke (E5)
 - Der **Generator emittiert Zonen/Portale beim Bauen** — er kennt die Geometrie, die er gerade
@@ -129,6 +172,18 @@ voll tunbar, klein. Steam Audio nur falls Phase 5 einen konkreten Bedarf zeigt.
 - Bewusst letzter Punkt: Fein-Realismus lohnt erst, wenn Fundament (Phase 1) und Content
   (Phase 2–3) stehen.
 
+**Kurzanalyse Steam Audio (D4):** Kostenlos (Valve), Unity-Plugin vorhanden. Liefert
+geometrische Occlusion, Diffraction an Kanten, echte Reflexionen/Late-Reverb und HRTF.
+Integration: Vivox-Transport bliebe erhalten (der Participant-Tap ist eine normale
+AudioSource); ersetzt würde unsere Messstrecke — Steam Audios Ergebnisse (Occlusion %,
+Distanz, Reverb) müssten auf `VoiceSample` gemappt werden statt Raycasts/Graph selbst zu
+messen. Aufwand: 2–4 Wochen Evaluierung + Anbindung, PLUS neues Autoring (Akustik-Materialien
+pro Fläche, Baking für statische Geometrie, Portale müssen dort ebenfalls definiert werden —
+das Zonen-Authoring entfällt also nicht, es wandelt sich). Kein großflächiges Neu-Schreiben,
+aber wir hätten ÜBERGANGSZEIT zwei Akustik-Systeme zu pflegen, weil Walkie-Weltton und
+Teleport-Brücken (nicht-geometrisch!) weiter den Graphen brauchen. → Empfehlung unverändert:
+erst wenn konkreter Bedarf.
+
 ## 5. Performance-Budget (Ziel)
 
 | Vorgang | Frequenz | Kosten |
@@ -138,12 +193,21 @@ voll tunbar, klein. Steam Audio nur falls Phase 5 einen konkreten Bedarf zeigt.
 | Offenheits-Update | pro Türoperation | ~0 nach Phase 1b |
 | GC | nie | NonAlloc-Buffer überall (verifiziert) |
 
-## 6. Offene Entscheidungen (an uns)
+## 6. Entscheidungen & Offenes (Stand 2026-09-19)
 
-- **D1:** Offene Treppe = eine Zone (freier Schallaufstieg) oder Etagen-Zonen + Stair-Portale?
-- **D2:** Aufzug schalldicht oder hörbar?
-- **D3:** Wie stark dämpft eine Theme-Tür-Brücke (travelLength in Metern)?
-- **D4:** Steam Audio später evaluieren? (Empfehlung: nein, bis konkreter Bedarf)
-- **D5:** Wann beginnt der Stockwerk-Generator (bestimmt, wann Phase 4 dran ist)?
+- **D1 — entschieden:** Treppenhaus = eine vertikale Zone, Flure pro Etage eigene Zonen,
+  daueroffene Portale dazwischen (Details Phase 3). „Durchs Treppenhaus hallen" über den
+  Reverb-Wert der Treppenhaus-Zone.
+- **D2 — entschieden:** Aufzug NICHT schalldicht — gedämpft durch die geschlossene Tür
+  hörbar, Portale an den Aufzugtüren.
+- **D3 — entschieden:** Theme-Türen über zentralen Stellregler in `VoiceHearingTuning`,
+  Startwert +4 m `travelLength`; Verhalten analog zu normalen Türen, damit eine
+  Stellschraube alle Türen einheitlich ändert.
+- **D4 — analysiert, aufgeschoben:** Steam Audio siehe Kurzanalyse in Phase 5. Kein
+  Neu-Schreiben nötig, aber Doppel-Pflege der Systeme → erst bei konkretem Bedarf.
+- **D5 — geparkt:** Stockwerk-Generator existiert noch nicht; Konzept-Gespräch, sobald
+  die Basis (Phase 1–3) steht.
+- **Spieleranzahl:** ausgelegt auf 4, erweiterbar auf 8 → Performance irrelevant
+  (max. 56 Paarungen × < 1 ms).
 
 
