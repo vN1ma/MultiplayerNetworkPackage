@@ -1,9 +1,9 @@
-# Walkie-Talkie — Debug-Historie (Stand 2026-09-18)
+# Walkie-Talkie — Debug-Historie (Stand 2026-09-20)
 
 Dieses Dokument hält fest, **welche Symptome** auftraten, **welche Ursachen** vermutet und bestätigt wurden, **welche Fixes** versucht wurden und **warum der Eigenklang bei großer Entfernung trotzdem wiederkehrte**. Es ist Absicht, dass die gescheiterten Ansätze hier bleiben — sonst wiederholt sich dieselbe Schleife.
 
 Repos: `HOTEL_GAME` (Spiel) + `MultiplayerNetworkPackage` / `com.earshot.voice` (Package).  
-Aktueller Package-Stand der Diagnose-Revision: `radio-name-dotfree-v5` (Funkkanal-Namen punktfrei, Capture-Tap folgt dem aktiven Sende-Kanal; Commit siehe Git-Historie).
+Aktueller Package-Stand: v18.2 `resolver-fix` (Commit b50626a) — Funk läuft über den Proximity-Kanal (v18), der Kanal-Resolver liest `Sessions` über das `IMultiplayerService`-Interface.
 
 ---
 
@@ -990,6 +990,26 @@ Proximity-Kanal, der nachweislich in jede Richtung liefert:
    `MouthVolumeScale` entfallen).
 
 **Status (2026-09-20): ROOT CAUSE bewiesen und umgangen — Funk läuft über Proximity. Nächster Test: Lauf 5 (Validierung, siehe walkie-2client-testplan.md).**
+
+## 22. Lauf 5: erster Versuch scheitert an DREI unabhängigen Root Causes — NGO-String-Serialisierung, Interface-Reflection, UGS-Geister-Lobbys; Fixes verifiziert (2026-09-20, 13:10–13:13)
+
+**Erster Lauf-5-Versuch gescheitert (12:05–12:31, `voice-20260920-1203…/1205…/1206…/1228…/1229…/1230…`):** Proximity-Chat lief in beide Richtungen (v18.1), aber (a) der Build-Client kam nicht in die Session — UGS meldete „already a member of the lobby" — und (b) die Walkie-Remote-PTT-Synchronisation blieb tot: Der Empfänger loggte nie `Netz-Sync angekommen … lokal=False`, obwohl der Sender `sende state='…' ans Netz` schrieb. Zwei scheinbar unabhängige Ausfälle — in Wahrheit DREI Ursachen, die nichts miteinander zu tun haben:
+
+1. **Root Cause 1 — NGO-String-NetworkVariable ohne Safe-Serialisierer (Spiel, v18c, `WalkieWorldItem`):** Der Editor.log enthielt zwei `OverflowException`-Stacktraces aus den `UserNetworkVariableSerialization<string>`-Lambdas („Attempted to read without first calling TryBeginRead()" + Schreib-Pendant). `WriteValue`/`ReadValue` ohne vorheriges `TryBeginWrite`/`TryBeginRead` werfen bei Strings; die Nachricht wird verworfen → der PTT-Status erreichte die Gegenseite nie. **Fix (Spiel, uncommittet):** `WriteValueSafe`/`ReadValueSafe` — NGOs dokumentiertes Pattern für String-NetworkVariables (Safe-Varianten machen die Bounds-Checks selbst).
+2. **Root Cause 2 — Resolver-Lookup auf `Sessions` fand die Property nie (Package v18.1, `VoiceChannelResolver`):** `MultiplayerService.Instance` ist ein `WrappedMultiplayerService`, der `Sessions` als EXPLIZITES Interface-Member implementiert → `GetProperty("Sessions")` auf dem konkreten Typ liefert immer null. v18.1 lief damit nie in den Sessions-Pfad, sondern fiel still auf den Lobby-Fallback zurück. **Fix (Package v18.2, Commit b50626a):** Lookup über `typeof(IMultiplayerService).GetProperty("Sessions")`, alter Pfad bleibt als Fallback.
+3. **Root Cause 3 — UGS-Geister-Lobby-Mitgliedschaften (Spiel, `RelaySessionUI`):** Wird der Client beendet, ohne dass ein Lobby-Leave läuft, bleibt die Spieler-ID als Geist in der Lobby → der nächste Join wird mit „already a member of the lobby" abgelehnt; mehrere Geister zählen gegen Max-Player („Session voll"). **Fix (Spiel, uncommittet):** vor jedem Join `CleanupStaleLobbyMembershipsAsync()` (`GetJoinedLobbiesAsync` → `RemovePlayerAsync`), Quit-Cleanup per `Application.wantsToQuit` (verzögert das Beenden, 5-s-Timeout) + `OnApplicationQuit`-Fallback für den Editor.
+
+**Verifikationslauf (13:10–13:13, Editor-Host `voice-20260920-131033-606-pid40892` / Build `voice-20260920-131045-276-pid25588`; Build vom 13:09 mit allen Fixes, Package aufgelöst auf b50626a / 0.18.2):**
+
+- Join fehlerfrei: `Session beigetreten. Session ID: PLjzAxhqbLxv3XFpuXm3jP` — kein „already a member"; beide Seiten im selben Vivox-Kanal (`Sprachkanal betreten`).
+- Editor→Build (13:11:13): `Netz-Sync angekommen state='SZlVQuD0E6mzUwLiAqY2A7XiF7KP' (lokal=False)` → `WALKIE REMOTE FEED an: SZlVQuD0…` → `WALKIE OUTPUT AN … mode=REMOTE` an beiden Walkies (`WalkieTalkie`, `WalkieTalkie (1)`); mehrere PTT-Zyklen bis 13:11:58.
+- Build→Editor (13:13:23): `Netz-Sync angekommen state='HJQIukGQzd8xZbb0L3xLdgIdA1RG' (lokal=False)` → `WALKIE REMOTE FEED Signal: HJQIuk… peak=0,299` (Herzschlag: `pulls=134, frames=64320` — echte Audio-Energie auf dem Walkie-Bus) → `WALKIE OUTPUT AN … mode=REMOTE, reason=AUDIBLE, distance=2,1…`.
+- Damit sind die Remote-PTT-Erfolgskriterien von Lauf 5 (`walkie-2client-testplan.md`) in BEIDE Richtungen erfüllt — inklusive nachweisbarer Audio-Samples am Empfänger-Gerät.
+
+**Verbleibende Beobachtungen (offen, siehe OFFENE-PUNKTE.md):** `Sprachkanal aus aktiver Session` erscheint in keinem Log — der Resolver läuft bereits während Create/Join, BEVOR die Session in `MultiplayerService.Sessions` registriert ist; der Lobby-Fallback gewinnt das Rennen. Funktional harmlos: Die UGS-Lobby-ID ist identisch mit der Session-ID, und Root Cause 3 ist gefixt. Das Cleanup-Log (`Verwaiste Lobby-Mitgliedschaft geloest`) war im 13:10-Lauf nie zu sehen (es gab schlicht keine Geister) — Gegenprobe per Task-Manager-Kill steht aus. Spiel-Seite (Fixes 1+3, Manifest-Pin) noch uncommittet.
+
+**Status (2026-09-20, 13:13): Walkie-Remote-Betrieb erstmals in beide Richtungen verifiziert. Offen: echter Internet-Test (Freund), Resolver-Timing, Cleanup-Gegenprobe, Spiel-Commits.**
+
 
 ---
 

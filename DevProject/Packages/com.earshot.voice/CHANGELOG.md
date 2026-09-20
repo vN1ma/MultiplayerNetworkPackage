@@ -6,6 +6,39 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+### v18.2 resolver-fix (2026-09-20, Commit b50626a)
+
+- **FIX: `VoiceChannelResolver` liest `Sessions` jetzt ueber das Interface.**
+  `MultiplayerService.Instance` ist ein `WrappedMultiplayerService`, der `Sessions`
+  als EXPLIZITES Interface-Member implementiert - `GetProperty("Sessions")` auf dem
+  konkreten Typ lieferte deshalb immer null, und v18.1 fiel still auf den
+  Lobby-Fallback zurueck. Neuer Lookup:
+  `typeof(IMultiplayerService).GetProperty("Sessions")`, der alte Pfad bleibt als
+  Fallback erhalten.
+- **Kontext Lauf 5:** Zwei weitere Root Causes des ersten Lauf-5-Fehlschlags liegen
+  im Spiel-Repo (HOTEL_GAME) und sind dort gefixt, aber uncommittet: NGO-String-
+  NetworkVariables brauchen `WriteValueSafe`/`ReadValueSafe` (`WalkieWorldItem`),
+  und verwaiste UGS-Lobby-Mitgliedschaften blockieren Joins (`RelaySessionUI`:
+  Cleanup vor jedem Join + Quit-Cleanup). Beweiskette und Verifikations-Logs:
+  `docs/walkie-talkie-debug-history.md` Abschnitt 22.
+- `package.json` 0.18.1 -> 0.18.2.
+
+### v18.1 voice-channel-fix (2026-09-20, Commit c5046f6)
+
+- **Voice-Kanal bevorzugt aus der aktiven UGS-Session**
+  (`MultiplayerService.Instance.Sessions`) statt dem Lobby-Cache - der Cache ist
+  nach Create/Leave/Abstuerzen veraltet (verwaiste Mitgliedschaften, list[0] greift
+  alte Lobby), sodass Host und Joiner in unterschiedlichen Vivox-Kanaelen landeten
+  (Prox-Chat tot, Walkie-Remote-Empfang unmoeglich).
+- **Ehrlicher Nachtrag (erst mit v18.2 wirksam):** Der Sessions-Lookup griff nie -
+  `WrappedMultiplayerService` implementiert `Sessions` explizit, der konkrete Typ
+  fand die Property nie (siehe v18.2). v18.1 verhielt sich in der Praxis wie der
+  Lobby-Fallback; verlaesslich korrekt wurde der Kanal erst durch v18.2 plus das
+  spiel-seitige Lobby-Cleanup.
+- Vorgaenger-Fix af90ab1: fehlende `.meta` fuer `WalkieParticipantTapFeed.cs` -
+  Unity ignorierte das Skript im Package-Cache (immutable folder), das
+  Package-Assembly brach.
+
 ### v18.0 walkie-ueber-proximity (2026-09-20)
 
 - **ROOT-CAUSE-FIX: Funk laeuft komplett ueber den Proximity-Kanal.** Beweislage

@@ -11,9 +11,16 @@
 - [x] **Vierter Lauf — BEANTWORTET (2026-09-20, 09:46, `voice-20260920-094642-932`/`094655-952`, 1–4 m Abstand):** Mund-Stimme blieb bei F6/ALL-PTT hörbar → TX-Pipeline arbeitet; Funkkanal trotzdem `E=0,00`. Ursache darunter gefunden (siehe nächster Punkt). Details: Debug-Historie Abschnitt 21.
 - [x] **ROOT CAUSE BEWIESEN + FIX v18 (2026-09-20):** Das Audio-Medium des zweiten Vivox-Kanals verbindet nie — `JoinChannelAsync` kehrt nach der `sessiongroup_add_session`-Quittung zurück, BEVOR `session_audio_connected` steht (fehlt es still: Roster ohne Audio-Bein, keine Fehlermeldung), und `TransmittingChannels` ist reine Client-Buchhaltung (LoginSession.cs:486) — `vivoxTx=[…]` war nie eine Server-Quittung. Beweiskette: alle 4 Läufe, alle Modi, lokal + remote, E=0, radio-gepinnte Capture-Taps liefern nie. **Fix v18 (walkie-ueber-proximity):** Funk läuft komplett über den Proximity-Kanal — kein Vivox-Funkkanal-Join, kein TX-Wechsel; Empfang per `WalkieParticipantTapFeed` (Proximity-Tap → Bus) + Remote-PTT-Sync (`SetRemoteTransmit`/`walkieTransmitting` NetworkVariable in WalkieWorldItem). Details: Debug-Historie Abschnitt 21, CHANGELOG v18.0.
 - [x] **Echo-Verdacht Vivox-native (dritter Lauf) — GEKLÄRT (2026-09-20):** Nutzerbericht des vierten Laufs: Echo/Unklarheit NUR in Spielernähe. Kein Vivox-native-Leak, sondern Testbett-Artefakt: Beide Clients an einem PC teilen EIN Mikro — beim Sprechen senden beide dieselbe Stimme auf den Prox-Kanal, man hört zwei versetzte räumliche Kopien. Beim Remote-Test mit Freund nicht relevant. v17/v17.1 änderten keinen Audio-Code.
-- [ ] **Lauf 5 — Validierung v18 (ausstehend):** Prozedur in `walkie-2client-testplan.md` (Abschnitt Lauf 5). Erfolgskriterien: `WALKIE REMOTE FEED an/Signal/Herzschlag` im Empfänger-Log während Sender-PTT, `OUTPUT AN mode=REMOTE stream=<playerId>` an Walkies, Mund-Stimme bleibt bei PTT hörbar, Funk in jeder Distanz hörbar (nah am und fern vom Geraet).
+- [x] **Lauf 5 — Validierung v18 DURCHGEFÜHRT (2026-09-20, 13:10-Lauf):** Erster Versuch (12:05–12:31) scheiterte an DREI unabhängigen Root Causes (NGO-String-Serialisierung ohne Safe-Wrapper, Interface-Reflection auf `Sessions`, UGS-Geister-Lobby-Mitgliedschaften — Beweiskette: `walkie-talkie-debug-history.md` Abschnitt 22). Nach den Fixes (Package v18.2/b50626a + Spiel `WalkieWorldItem`/`RelaySessionUI`) erfüllte der 13:10-Lauf (`voice-20260920-131033-606` Editor-Host / `voice-20260920-131045-276` Build) die Remote-PTT-Kriterien in BEIDE Richtungen: Join ohne „already a member", `Netz-Sync angekommen … lokal=False` auf beiden Seiten, `WALKIE REMOTE FEED Signal peak=0,299` (pulls=134, frames=64320), `WALKIE OUTPUT AN mode=REMOTE reason=AUDIBLE`. Nicht explizit geprüft (Session nur ~3 min): Mund-Stimme bei PTT, Distanz-Falloff — beim nächsten Test abhaken.
 - [x] **Design-Frage „Proximity parallel zum Funken" — ENTSCHIEDEN (2026-09-20, v18):** Proximity geht beim Funken MIT — die Mund-Stimme bleibt für Nachbarn voll wahrnehmbar, während Walkies die gefilterte Stimme abspielen. „Funk ersetzt Mund" ist entfernt (`mouthVolumeWhileTransmitting`/`MouthVolumeScale` entfallen; alte Prefab-Werte werden ignoriert). DECISIONS.md-Update steht aus.
 - [ ] **Hinweis Talk-Pose:** `raisedToFace` (Pose) wird unabhängig vom `SetTransmitting`-Erfolg gesetzt — Pose-Animation ist KEIN Beweis für funktionierende Sendung. Ggf. im Spiel-Code koppeln, falls das irrtümlich als Feedback genutzt wird.
+
+## v18.2 — Nacharbeiten (2026-09-20)
+
+- [ ] **Resolver-Timing:** `Sprachkanal aus aktiver Session` wurde im 13:10-Lauf nie geloggt — der Resolver läuft bereits während Create/Join, bevor die Session in `MultiplayerService.Sessions` registriert ist; der Lobby-Fallback gewinnt das Rennen. Funktional harmlos (UGS-Lobby-ID == Session-ID, Geister werden per `RelaySessionUI`-Cleanup entfernt). Optional: Resolver nach `Session beigetreten` erneut ausführen oder Voice-Connect hinter die Join-Completion legen.
+- [ ] **Cleanup-Gegenprobe:** `Verwaiste Lobby-Mitgliedschaft geloest` war im 13:10-Lauf nie zu sehen (keine Geister vorhanden). Gezielt provozieren: Build per Task-Manager killen (kein sauberes Beenden) und direkt erneut joinen — Cleanup-Log und fehlerfreier Join müssen folgen.
+- [ ] **Echter Remote-Test (Freund über Internet):** Bisher nur lokal verifiziert (Editor + Build am selben PC, 13:10–13:13).
+- [ ] **HOTEL_GAME uncommittet:** Fix B (`WalkieWorldItem` WriteValueSafe/ReadValueSafe), Fix D (`RelaySessionUI` Lobby-Cleanup) und der Manifest-Pin auf b50626a liegen als Working-Tree-Änderungen vor (plus Unity-Settings-Noise) — Commit ausstehend.
 
 ## Audio / v16.4-Nachtests
 
@@ -25,6 +32,7 @@
 ## Repo-Hygiene
 
 - [ ] **`Testaudio.mp3`** liegt untracked im Package-Repo-Root (`MultiplayerNetworkPackage/`) — löschen oder committen (z. B. für Tests als Sample-Asset).
+- [ ] **`LCExamples/`** liegt ebenfalls untracked im Package-Repo-Root — prüfen, ob irgendwo referenziert; sonst löschen oder committen.
 
 ## Akustik-Design (aus Brainstorming 2026-09-19, Graph-Debug-HUD)
 
