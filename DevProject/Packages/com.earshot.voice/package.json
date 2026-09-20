@@ -1,6 +1,6 @@
 {
   "name": "com.earshot.voice",
-  "version": "0.18.1",
+  "version": "0.18.2",
   "displayName": "Earshot Voice",
   "description": "Eigenstaendiger Proximity Voice Chat fuer Unity 6. Vivox uebertraegt die Stimme, Entfernung, Verdeckung, Tueren und Raeume wirken lokal. Keine Abhaengigkeit zu Netcode oder einem bestimmten Multiplayer-Framework - ein Adapter bindet die eigene Spieler-Identitaet an.",
   "unity": "6000.0",

@@ -70,9 +70,19 @@ namespace Earshot.Voice
                 object instance = serviceType.GetProperty("Instance")?.GetValue(null);
                 if (instance == null) return null;
 
-                object sessions = instance.GetType()
-                    .GetProperty("Sessions")
-                    ?.GetValue(instance);
+                // 'Sessions' ist in WrappedMultiplayerService explizit als
+                // IMultiplayerService.Sessions implementiert. GetProperty
+                // ("Sessions") auf dem konkreten Typ findet explizite
+                // Interface-Implementierungen nicht und lieferte deshalb
+                // immer null (Logs 20.09.: durchgaengig 'Sprachkanal aus
+                // Lobby' trotz aktiver Session). Zugriff deshalb ueber den
+                // Interface-Typ.
+                Type serviceInterface = FindType(
+                    "Unity.Services.Multiplayer.IMultiplayerService"
+                );
+                object sessions = serviceInterface != null
+                    ? serviceInterface.GetProperty("Sessions")?.GetValue(instance)
+                    : instance.GetType().GetProperty("Sessions")?.GetValue(instance);
                 if (sessions is not System.Collections.IEnumerable enumerable)
                 {
                     return null;
