@@ -263,13 +263,27 @@ namespace Earshot.Voice
 
         public async Task SetRadioTransmittingAsync(string logicalChannelId, bool transmitting)
         {
-            if (!IsConnected) return;
+            // remote-hunt-v16.9: Frueher STILLER Rueckkehrpunkt. Ohne Log war ein PTT
+            // ohne Vivox-Verbindung im Session-Log unsichtbar (Beweis Freund-Session
+            // 20260920-005940: Die Sendung des zweiten Clients kam nie im Funkkanal an,
+            // ohne dass irgendeine Zeile zeigte, wo die Kette abbrach).
+            if (!IsConnected)
+            {
+                if (transmitting)
+                {
+                    VoiceSessionLog.Alert(
+                        "FUNK sendet BLOCKIERT: Vivox nicht verbunden " +
+                        "(SetRadioTransmittingAsync bricht ab — Sendung geht nirgendwo hin).");
+                }
+                return;
+            }
 
             if (!transmitting)
             {
                 transmittingRadioLogicalId = null;
                 await VivoxService.Instance.SetChannelTransmissionModeAsync(
                     TransmissionMode.Single, proximityChannelName);
+                VoiceSessionLog.Note("FUNK sendet aus (zurueck auf Proximity-Kanal)");
                 return;
             }
 
@@ -283,10 +297,48 @@ namespace Earshot.Voice
             transmittingRadioLogicalId = id;
 
             // Funk ersetzt Mund: nur in den Funkkanal senden.
-            await VivoxService.Instance.SetChannelTransmissionModeAsync(
-                TransmissionMode.Single, vivoxName);
+            // remote-hunt-v16.9: Exceptions landen jetzt IM Session-Log — vorher
+            // fraß nur die Konsole sie (WalkieRadioSync-Log-Datei blieb stumm).
+            try
+            {
+                await VivoxService.Instance.SetChannelTransmissionModeAsync(
+                    TransmissionMode.Single, vivoxName);
+            }
+            catch (System.Exception ex)
+            {
+                VoiceSessionLog.Alert(
+                    $"FUNK sendet FEHLGESCHLAGEN auf '{id}': Vivox-Moduswechsel wirft " +
+                    $"({ex.GetType().Name}: {ex.Message}) — Sendung bleibt auf dem vorherigen Kanal.");
+                throw;
+            }
 
-            VoiceSessionLog.Note($"FUNK sendet auf '{id}' (Proximity stumm auf dem Draht)");
+            // Bestaetigung mit Vivox-Sicht: TransmittingChannels ist die autoritative
+            // SDK-Liste. Steht der Funkkanal dort nicht drin, ist der Moduswechsel
+            // STILL gescheitert (ohne Exception) — genau dann greift diese Zeile.
+            VoiceSessionLog.Note(
+                $"FUNK sendet auf '{id}' (Proximity stumm auf dem Draht), " +
+                $"vivoxTx=[{string.Join(" | ", ReadTransmittingChannelsSnapshot())}]");
+        }
+
+        private static string[] ReadTransmittingChannelsSnapshot()
+        {
+            try
+            {
+                var service = VivoxService.Instance;
+                var channels = service != null ? service.TransmittingChannels : null;
+                if (channels == null || channels.Count == 0) return new string[0];
+
+                var result = new string[channels.Count];
+                for (int i = 0; i < channels.Count; i++)
+                {
+                    result[i] = channels[i] ?? string.Empty;
+                }
+                return result;
+            }
+            catch
+            {
+                return new string[0];
+            }
         }
 
         private async Task EnsureLoggedInAsync(string displayName)

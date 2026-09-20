@@ -6,6 +6,27 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+### Hinzugefuegt (remote-hunt v16.9, 2026-09-20)
+
+- **Sender-Seiten-Diagnose** (Beweis-Kette: Freund-Session 20260920-005940 — die Sendung des
+  zweiten Clients kam nie im Funkkanal an, aber kein Log zeigte die Bruchstelle): `WALKIE PTT
+  BLOCKIERT` (flanken-getriggert) statt stillem Guard-Return in `EarshotWalkieTalkie.SetTransmitting`;
+  `FUNK sendet BLOCKIERT` bei fehlender Vivox-Verbindung, `FUNK sendet FEHLGESCHLAGEN` mit Exception
+  im Session-Log (vorher nur Unity-Konsole), `FUNK sendet aus` beim Rueckwechsel und TX-Bestaetigung
+  mit autoritativer Vivox-Sicht `vivoxTx=[…]` in `VivoxVoiceBackend.SetRadioTransmittingAsync`;
+  `WALKIE SYNC FEHLGESCHLAGEN` zusaetzlich im Session-Log (`WalkieRadioSync`).
+- **`docs/walkie-2client-testplan.md`:** Anleitung + 6-Szenarien-Checkliste fuer den lokalen
+  2-Client-Test (Editor-Host + Windows-Build-Client), inkl. erwarteter Log-Zeilen pro Szenario.
+
+### Geaendert (remote-hunt v16.9, 2026-09-20)
+
+- **Log-Diaet** (null Verhaltens-Change): `WALKIE VIVOX RX` schreibt die Beweis-Zeile nur noch bei
+  Zustandswechsel (PTT, funkRx>0, Sonden-Play-Status, Teilnehmerlisten) plus 30-s-Herzschlag statt
+  alle 2 s; `WALKIE AUDIO-INVENTAR` listet nur noch voice-relevante Quellen (Earshot/Walkie/
+  StreamClip/Tap — bisher auch 16 OceanSound-Ambience-Quellen pro Snapshot), LEAK-VERDACHT-Alert
+  bleibt fuer alle Quellen; `WALKIE RADIO KANAL` nur noch bei Roster-Aenderung statt pro Sync-
+  Durchlauf. Diagnostic-Revision: `remote-hunt-v16.9`.
+
 ### Behoben
 
 - Sidetone-Leak (Selbsthoerung bei PTT ueberall gleich laut, distanz- und volumen-

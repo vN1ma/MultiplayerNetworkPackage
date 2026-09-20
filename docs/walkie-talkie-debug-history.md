@@ -779,4 +779,80 @@ Architektur-Klarheit (SDK-Quellcode `com.unity.services.vivox@16.10.0` gelesen):
 
 ---
 
+## 19. Remote-Hunt v16.9 — Freund-Session-Beweis: Die Sendung des zweiten Clients kam NIE im Funkkanal an; alle 3 stillen TX-Failure-Punkte geschlossen (2026-09-20)
+
+**Symptom (2-Client-Test, Freund):** Beide Spieler halten ihr Walkie und sprechen — keiner hört den anderen
+über Funk. Bisherige Deutung („Empfangs-/Arbitrierungslogik schuldigt") war falsch.
+
+**Beweislage — Log `voice-20260920-005940-080-pid25932.txt` (Host-Client, 00:59–01:10, `revision='leak-hunt-v16.4'`):**
+
+| Beobachtung | Befund |
+|---|---|
+| `FUNK sendet auf 'default'` (9×, Host-Client) | TX-Wechsel des HOSTS funktioniert |
+| `funkRx=0.000000` in **jeder** 2-s-Messung (~300 Zeilen) | Funkkanal lieferte **niemals** Audio des Gastes |
+| `funkRxPlaying=False` — 0× `True` über die gesamte Session | Funk-RX-Sonde durchgehend tot/pausiert |
+| Gast-Walkie-Tap `Earshot Walkie - default - IxJV…` `outPeak=0.000` in jedem Snapshot | Gast-Teilnehmer-Tap lieferte nie ein Sample |
+| Gast-**Proximity**-Tap `outPeak` bis 0,113 (01:02:47) | Gast hat geredet; Vivox-Login, Mikro und Empfangskette des Hosts funktionieren |
+| `WALKIE OUTPUT AN … mode=REMOTE`: **0 Zeilen**; stattdessen ausschließlich `NO_REMOTE_WINNER`/`OUT_OF_RANGE` | Remote-Ausgang hatte nie einen Winner |
+| **0** Selbstheilungs-/`RecoverSpeaker`-Zeilen | `PollStuckTaps` feuert nur, wenn Vivox den Teilnehmer als sprechend meldet — tat es nie |
+
+**Schlussfolgerung (zweistufig):**
+
+1. **Die Empfangskette des Host-Client ist unschuldig.** `NO_REMOTE_WINNER` ist die korrekte Reaktion
+   auf einen Funkkanal ohne Signal. Hätte Gasts-Audio den Kanal erreicht, hätte spätestens `PollStuckTaps`
+   (`VoiceRuntime.cs`: Vivox meldet „sprechend" + Tap still → Tap-Rebuild, sichtbare Log-Zeile) eingegriffen.
+2. **Der Bug liegt auf der Sende-Seite des Gast-Client:** Er hat den Funkkanal zwar gejoint (als Teilnehmer
+   sichtbar, Kanal-Sync läuft) und seine Proximity-Stimme kam an — aber seine PTT-Sendung ging nie in den
+   Funkkanal. Drei Kandidaten, alle bis v16.9 **stumm** im Log:
+   - (a) `EarshotWalkieTalkie.SetTransmitting(true)`: Guard `!WalkieRules.CanTransmit(poweredOn, canTransmit)`
+     → stiller Return. Hinweis: Die Talk-Pose (`raisedToFace`) wird in `ApplyLocalTransmit` UNABHÄNGIG vom
+     `SetTransmitting`-Erfolg gesetzt — Pose animiert also auch bei blockierter Sendung!
+   - (b) `VivoxVoiceBackend.SetRadioTransmittingAsync`: `if (!IsConnected) return;` → stiller Return.
+   - (c) `SetChannelTransmissionModeAsync` ohne try/catch; die Exception landete nur in der Unity-Konsole
+     (`EarshotVoiceLog.Exception`), NICHT in der Session-Log-Datei.
+
+**Wichtige Korrektur früherer Deutungen:** Die frühere Annahme „A spricht, Bs Walkie am Boden → B hört ✓"
+war ein Messfehler der Selbsteinschätzung: Das war As eigener **Sidetone** aus dem Boden-Walkie (belegt:
+`mode=SIDETONE, stream='__local__'`). In KEINER Session (auch nicht 23:56 / 00:43) war Remote-Funk-Audio
+jemals hörbar — der Remote-Pfad wurde durch 16 Solo-Revisionen Leak-Hunt nie wirklich getestet
+(OFFENE-PUNKTE: „Remote-2-Client-Distanztest" stand seit v16.4 aus).
+
+**Nebenbefund (Design, kein Bug):** Halten BEIDE gleichzeitig PTT, hört niemand irgendwas — korrekt nach
+Design (Half-Duplex unterdrückt Fremdempfang bei eigenem PTT auf demselben Kanal; „Funk ersetzt Mund"
+stummt die eigene Proximity auf dem Draht). Gewünschte Änderung „Proximity parallel zum Funken" wäre ein
+Design-Change (TransmissionMode.All) → separat entscheiden (DECISIONS.md „Walkie-Talkie V1").
+
+**Fix v16.9 (`remote-hunt-v16.9`, reine Diagnose/Logging — NULL Verhaltens-Change):**
+
+1. `EarshotWalkieTalkie.SetTransmitting`: Blockierte PTT-Anfrage loggt jetzt einmal pro Flanke
+   (`WALKIE PTT BLOCKIERT … poweredOn/canTransmit/isLocallyOwned`) statt still zu enden.
+2. `VivoxVoiceBackend.SetRadioTransmittingAsync`: Alert bei `!IsConnected`; try/catch um den
+   Moduswechsel mit `FUNK sendet FEHLGESCHLAGEN …` IM Session-Log (rethrow für den Sync-Loop);
+   TX-Bestätigung jetzt mit Vivox-Sicht `vivoxTx=[…]` (autoritative `TransmittingChannels`-Liste —
+   deckt auch stilles Scheitern ohne Exception auf); neue Zeile `FUNK sendet aus` beim Rückwechsel.
+3. `WalkieRadioSync`: Sync-Exceptions zusätzlich ins Session-Log (`WALKIE SYNC FEHLGESCHLAGEN …`).
+4. Log-Diät (Beweis: ~300 identische RX-Zeilen, 16 OceanSound-Inventory-Spamzeilen pro Snapshot):
+   `WALKIE VIVOX RX` nur noch bei Flanke (PTT, funkRx>0, Sonden-Play-Status, Teilnehmerlisten) plus
+   30-s-Herzschlag; `WALKIE AUDIO-INVENTAR` nur noch voice-relevante Quellen (Earshot/Walkie/StreamClip/
+   Tap), `LEAK-VERDACHT`-Alert bleibt für ALLE Quellen; `WALKIE RADIO KANAL` nur noch bei Roster-Änderung.
+   Unverändert (Beweis-Pfeiler): `CAPTURE FLOW` (1 Hz während PTT), `WALKIE OUTPUT AN/AUS`, `TAP Funk an/weg`,
+   `FUNK sendet`, `WALKIE PTT an/aus`.
+
+**Testprotokoll v16.9 (lokal, 2 Clients auf einem Rechner — siehe `docs/walkie-2client-testplan.md`):**
+Editor als Host + Windows-Build als Client (localhost). Unity Authentication ist pro Prozess anonym →
+getrennte Vivox-IDs (Code-Beweis: `EarshotVoice.LocalPlayerId` aus `AuthenticationService`). NICHT
+Multiplayer-Play-Mode/Virtual Players verwenden — ein Prozess unterstützt nur einen VivoxService.
+Szenarien: (1) nur Proximity, (2) A funkt → B hört am eigenen Walkie (`OUTPUT AN … mode=REMOTE … AUDIBLE`
+und `funkRx>0` auf Bs Log ERWARTET), (3) abwechselnd, (4) gleichzeitig PTT (erwartungsgemäß still),
+(5) Distanz >8 m (`OUT_OF_RANGE`), (6) B neben A ohne Walkie („Sidetone für alle" = Fan-out am Gerät).
+Fällt Szenario 2 aus, zeigt das GAST-Log jetzt garantiert, WO die Kette bricht: `WALKIE PTT BLOCKIERT`
+(→ Kandidat a: Power/Holder/Ownership-Race im Spiel-Code), `FUNK sendet BLOCKIERT/FEHLGESCHLAGEN`
+(→ b/c) oder `FUNK sendet … vivoxTx=[…]` ohne Empfang beim Host (→ Vivox-Kanal-Übertragungseigenschaft,
+nächstes Level).
+
+**Status: v16.9 umgesetzt (2026-09-20), 2-Client-Lokaltest ausstehend.** Fix der eigentlichen Ursache
+erst NACH Befund — nicht raten (Lektion Abschnitt 6: zwei Bugs als ein Symptom behandelt).
+
+---
+
 *Dokument angelegt 2026-09-18. Bei jedem weiteren gescheiterten oder erfolgreichen Ansatz: hier einen kurzen Abschnitt ergänzen (Datum, Symptom, Hypothese, Fix, Log-Beweis, Ergebnis), nicht nur CHANGELOG-Zeilen.*

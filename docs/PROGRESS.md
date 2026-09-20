@@ -4,7 +4,7 @@
 
 **Phase 4 in Arbeit — Walkie-Talkie**
 
-Status: **v16.4 (leak-hunt) — Sidetone-Leak ROOT CAUSE gefixt und im Spiel bestätigt** (2026-09-19): `WalkieDeviceOutput.OnAudioFilterRead` überschrieb `data` in vollem Pegel und umging damit sämtliche Unity-Lautstärkeregeln (Distanz, OWN_DEVICE_TX, OUT_OF_RANGE, F12). Lautstärke wird jetzt autoritativ im Filter durchgesetzt; `MaxHearingDistance`-Tuning wirkt erstmals hörbar. Details: `DECISIONS.md`, `walkie-talkie-debug-history.md` Abschnitt 18, Tuning-Doku in `walkie-talkie-game-integration.md`.
+Status: **v16.9 (remote-hunt) — Remote-Funk-Beweis: Sendung des zweiten Clients kam NIE im Funkkanal an; alle stillen TX-Failure-Punkte jetzt geloggt** (2026-09-20): Freund-Session-Log-Analyse (`voice-20260920-005940`) bewies `funkRx=0` über die gesamte Session, `funkRxPlaying` nie `True`, Gast-Walkie-Tap `outPeak=0`, 0× `OUTPUT AN mode=REMOTE`, 0× Selbstheilung — Empfangskette unschuldig, Bug liegt auf der Sende-Seite des Gast-Clients. v16.9 schließt die drei stillen Failure-Punkte (PTT-Guard, `!IsConnected`, Vivox-Moduswechsel-Exception) ins Session-Log auf und macht die Diagnose einseitig prüfbar; zugleich Log-Diät (RX-Flanken statt 2-s-Ticker, Inventory-Filter, Roster-Änderungserkennung). Fix der eigentlichen Ursache erst nach 2-Client-Lokaltest (`docs/walkie-2client-testplan.md`). Vorgänger: v16.4 (leak-hunt) Sidetone-Leak ROOT CAUSE gefixt (2026-09-19) — Details Abschnitt 18, aktueller Stand Abschnitt 19 der `walkie-talkie-debug-history.md`.
 
 **Offene Punkte (definitive Liste): `docs/OFFENE-PUNKTE.md`** — v16.4-Nachtests (F12-Vollverifikation, Remote-Distanztest), Editor.log-Beobachtung, Repo-Hygiene, akustische Designfragen (Walkie-Geräteton durch den Raum-Portal-Graphen?).
 

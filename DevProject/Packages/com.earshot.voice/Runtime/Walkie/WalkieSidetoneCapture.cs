@@ -12,7 +12,7 @@ namespace Earshot.Voice
     [AddComponentMenu("")]
     internal sealed class WalkieSidetoneCapture : MonoBehaviour
     {
-        private const string DiagnosticRevision = "leak-hunt-v16.4";
+        private const string DiagnosticRevision = "remote-hunt-v16.9";
 
         // v16.5: Leak-Hunt-Hotkeys (F7-F12) sind per Default AUS. Der Root-Cause
         // ist gefixt und im Spiel bestaetigt, und F7 wird jetzt vom
@@ -66,6 +66,10 @@ namespace Earshot.Voice
         private AudioSource proxRxSource;
         private string lastProxRxChannel;
         private float nextRxDiagnostic;
+        // remote-hunt-v16.9 Log-Diaet: Flanken-Zustand + 30-s-Herzschlag fuer die
+        // VIVOX-RX-Beweiszeile (statt identische Zeile alle 2 s zu schreiben).
+        private string lastRxStateKey;
+        private float nextRxHeartbeat;
         private readonly List<string> radioRxScratch = new List<string>(4);
         private readonly List<string> proxParticipantScratch = new List<string>(4);
         private readonly List<string> radioParticipantScratch = new List<string>(4);
@@ -283,6 +287,9 @@ namespace Earshot.Voice
         /// - masterPeak/masterRms: Unity-Endmix (Sonden-Validierung: muss bei
         ///   hörbarem Spiel-Ton >0 sein, bei F12 exakt 0).
         /// - proxKanal/funkKanal: Teilnehmer-Listen (Proximity war blinder Fleck).
+        /// v16.9 Log-Diaet: Messung bleibt im 2-s-Takt, die Ausgabe kommt nur
+        /// noch bei Zustandswechsel (PTT/Empfang/Play-Status/Teilnehmer) plus
+        /// 30-s-Herzschlag — siehe remote-hunt-Kommentar im Methodenkoerper.
         /// </summary>
         private void LogVivoxRxProbe()
         {
@@ -322,17 +329,42 @@ namespace Earshot.Voice
                 : -1;
             string outDev = EarshotVoice.ActiveOutputDeviceName;
 
+            // remote-hunt-v16.9 Log-Diaet: Der 2-s-Ticker MISST weiter (die Flanken-
+            // erkennung braucht die Abtastung), schreibt die volle Beweis-Zeile aber
+            // nur noch bei Zustandswechsel (PTT, Funk-Empfangs-Pegel, Sonden-Play-
+            // Status, Teilnehmerlisten) plus alle 30 s als Herzschlag. Beweis:
+            // Freund-Session 20260920-005940 enthielt ~300 identische Zeilen;
+            // wertvoll waren ausschliesslich die Flanken (funkRx=0 von Anfang bis
+            // Ende, funkRxPlaying nie True — der entscheidende Remote-Befund).
+            string proxKanal = string.Join(", ", proxParticipantScratch);
+            string funkKanal = string.Join(", ", radioParticipantScratch);
+            bool funkPlaying = radioRxSource != null && radioRxSource.isPlaying;
+            bool proxPlaying = proxRxSource != null && proxRxSource.isPlaying;
+            bool ptt = WalkieTalkieRegistry.LocalIsTransmitting;
+            bool funkSignal = funkRx > 0.0001f;
+            string stateKey = ptt + "|" + funkPlaying + "|" + proxPlaying + "|" +
+                funkSignal + "|" + proxKanal + "|" + funkKanal;
+            bool changed = !string.Equals(stateKey, lastRxStateKey, System.StringComparison.Ordinal);
+            bool heartbeat = changed || Time.unscaledTime >= nextRxHeartbeat;
+            if (!heartbeat) return;
+            if (Time.unscaledTime >= nextRxHeartbeat)
+            {
+                nextRxHeartbeat = Time.unscaledTime + 30f;
+            }
+            lastRxStateKey = stateKey;
+
             VoiceSessionLog.Note(
-                $"WALKIE VIVOX RX: funkRx={funkRx:0.000000}, proxRx={proxRx:0.000000}, " +
+                (changed ? "WALKIE VIVOX RX (Wechsel): " : "WALKIE VIVOX RX (Herzschlag): ") +
+                $"funkRx={funkRx:0.000000}, proxRx={proxRx:0.000000}, " +
                 $"micPeak={micPeak:0.000000}, feedBlocked={diagnosticSidetoneBlocked}, " +
                 $"vivoxOutMuted={outMuted}, vivoxOutDev='{outDev}', vivoxOutVol={outVol}, " +
-                $"funkRxPlaying={(radioRxSource != null && radioRxSource.isPlaying)}, " +
-                $"proxRxPlaying={(proxRxSource != null && proxRxSource.isPlaying)}, " +
+                $"funkRxPlaying={funkPlaying}, " +
+                $"proxRxPlaying={proxPlaying}, " +
                 $"listenerVol={AudioListener.volume:0.000}, " +
                 $"masterPeak={masterPeak:0.000000}, masterRms={masterRms:0.000000}, " +
-                $"proxKanal=[{string.Join(", ", proxParticipantScratch)}], " +
-                $"funkKanal=[{string.Join(", ", radioParticipantScratch)}], " +
-                $"ptt={WalkieTalkieRegistry.LocalIsTransmitting}, " +
+                $"proxKanal=[{proxKanal}], " +
+                $"funkKanal=[{funkKanal}], " +
+                $"ptt={ptt}, " +
                 $"revision='{DiagnosticRevision}'");
         }
 
@@ -885,14 +917,27 @@ namespace Earshot.Voice
                 string clipName = candidate.clip != null ? candidate.clip.name : "-";
                 string objectName = candidate.gameObject.name;
 
-                float outPeak = ReadSourceOutputPeak(candidate);
-                VoiceSessionLog.Note(
-                    $"WALKIE AUDIO-INVENTAR: '{objectName}'" +
-                    (isTap ? " [SIDETONE-TAP]" : "") +
-                    $" clip='{clipName}' spatial={candidate.spatialBlend:0.00} " +
-                    $"vol={candidate.volume:0.00} mute={candidate.mute} " +
-                    $"loop={candidate.loop} outPeak={outPeak:0.000} " +
-                    $"pos={candidate.transform.position:0.0}");
+                // remote-hunt-v16.9 Log-Diaet: Inventory-Note-Zeilen nur noch fuer
+                // voice-relevante Quellen (Earshot/Walkie/StreamClip/Tap). Die
+                // Leak-Warnung unten bleibt fuer ALLE spielenden Quellen aktiv.
+                // Beweis: Freund-Session 20260920-005940 listete pro Snapshot 16
+                // OceanSound_XX-Quellen auf — Rauschen ohne Diagnosewert.
+                bool voiceRelevant = isTap ||
+                    objectName.IndexOf("Earshot", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    objectName.IndexOf("Walkie", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    clipName.StartsWith("StreamClip", System.StringComparison.OrdinalIgnoreCase);
+
+                float outPeak = voiceRelevant ? ReadSourceOutputPeak(candidate) : 0f;
+                if (voiceRelevant)
+                {
+                    VoiceSessionLog.Note(
+                        $"WALKIE AUDIO-INVENTAR: '{objectName}'" +
+                        (isTap ? " [SIDETONE-TAP]" : "") +
+                        $" clip='{clipName}' spatial={candidate.spatialBlend:0.00} " +
+                        $"vol={candidate.volume:0.00} mute={candidate.mute} " +
+                        $"loop={candidate.loop} outPeak={outPeak:0.000} " +
+                        $"pos={candidate.transform.position:0.0}");
+                }
 
                 if (!isTap &&
                     candidate.spatialBlend < 0.5f &&

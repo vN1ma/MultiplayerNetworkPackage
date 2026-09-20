@@ -4,6 +4,13 @@
 > nicht löschen (Nachvollziehbarkeit). Zugehörige Root-Cause-Analysen: `DECISIONS.md`,
 > Detail-Verlauf: `walkie-talkie-debug-history.md`.
 
+## Remote-Funk / 2-Client (v16.9, 2026-09-20)
+
+- [ ] **2-Client-Lokaltest nach `docs/walkie-2client-testplan.md`:** Editor als Host + Windows-Build als Client (localhost; getrennte Unity-Auth-Anonym-Accounts = getrennte Vivox-IDs). Erwartung Szenario 2: `OUTPUT AN … mode=REMOTE … AUDIBLE` + `funkRx>0` auf der Empfängerseite. Fällt es aus, zeigt das Sender-Log jetzt garantiert die Bruchstelle (`WALKIE PTT BLOCKIERT` / `FUNK sendet BLOCKIERT` / `FUNK sendet FEHLGESCHLAGEN` / `FUNK sendet … vivoxTx=[…]`).
+- [ ] **Root-Cause-Fix Sendeseite (nach Befund!):** Kandidaten (a) PTT-Guard-Race `CanTransmit`/Ownership im Spiel-Code, (b) Vivox nicht verbunden beim TX-Wechsel, (c) `SetChannelTransmissionModeAsync` schlägt fehl. Nicht auf Verdacht fixen (Lektion Debug-Historie Abschnitt 6).
+- [ ] **Design-Frage „Proximity parallel zum Funken":** Aktuell bewusstes Design „Funk ersetzt Mund" (TX Single→Funkkanal, Proximity stumm auf dem Draht, DECISIONS.md „Walkie-Talkie V1"). Nutzervunsch: Proximity soll beim Funken MITGEHEN. Änderung = `TransmissionMode.All` während PTT + Mund-Dämpfung-Regel anpassen — als Design-Change entscheiden und dokumentieren.
+- [ ] **Hinweis Talk-Pose:** `raisedToFace` (Pose) wird unabhängig vom `SetTransmitting`-Erfolg gesetzt — Pose-Animation ist KEIN Beweis für funktionierende Sendung. Ggf. im Spiel-Code koppeln, falls das irrtümlich als Feedback genutzt wird.
+
 ## Audio / v16.4-Nachtests
 
 - [ ] **F12-Vollverifikation (v16.4):** F12 während PTT + durchgehendem Sprechen → jetzt KOMPLETT stumm (auch die eigene Stimme über die Walkies). Falls doch Ton bleibt: verbleibender Pfad ist OS-/Parsec-/VB-Cable-Seite (Protokoll: Debug-Historie Abschnitt 18).

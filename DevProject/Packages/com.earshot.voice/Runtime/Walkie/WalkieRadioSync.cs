@@ -18,6 +18,11 @@ namespace Earshot.Voice
         private int requestedRevision;
         private int appliedRevision;
 
+        // remote-hunt-v16.9 Log-Diaet: letzter protokollierter Funkkanal-Roster
+        // pro Kanal — die RADIO-KANAL-Zeile kommt jetzt nur noch bei
+        // Teilnehmer-Aenderung statt bei jedem Sync-Durchlauf.
+        private readonly Dictionary<string, string> lastRosterByChannel = new Dictionary<string, string>(4);
+
         internal static WalkieRadioSync EnsureOn(VoiceRuntime runtime)
         {
             if (runtime == null) return null;
@@ -129,17 +134,28 @@ namespace Earshot.Voice
                     // eigene Sendung aber an SEINEN Walkies ab - aus Sicht dieses
                     // Spielers waere das eine Stimme mit Walkie-Effekt und konstant
                     // bleibender Lautstaerke, unabhaengig vom eigenen Standort.
+                    // remote-hunt-v16.9: nur noch bei Roster-Aenderung loggen
+                    // (Freund-Session 20260920-005940: identische Zeile wiederholte
+                    // sich bei jedem Sync-Durchlauf dutzende Male).
                     var participantScratch = new List<string>(8);
                     for (int i = 0; i < wantedChannels.Count; i++)
                     {
                         participantScratch.Clear();
                         backend.CopyRadioChannelParticipantIds(wantedChannels[i], participantScratch);
 
+                        string roster = string.Join(", ", participantScratch);
+                        if (lastRosterByChannel.TryGetValue(wantedChannels[i], out string lastRoster) &&
+                            string.Equals(lastRoster, roster, System.StringComparison.Ordinal))
+                        {
+                            continue;
+                        }
+                        lastRosterByChannel[wantedChannels[i]] = roster;
+
                         if (participantScratch.Count > 1)
                         {
                             VoiceSessionLog.Alert(
                                 $"WALKIE RADIO KANAL '{wantedChannels[i]}': {participantScratch.Count} Teilnehmer " +
-                                $"[{string.Join(", ", participantScratch)}] - ZWEITER CLIENT IM KANAL! " +
+                                $"[{roster}] - ZWEITER CLIENT IM KANAL! " +
                                 "Dessen Walkies spielen die eigene Sendung ab: Hauptverdacht fuer " +
                                 "'Stimme ueberall gleich laut' ohne 3D-Rolloff.");
                         }
@@ -147,7 +163,7 @@ namespace Earshot.Voice
                         {
                             VoiceSessionLog.Note(
                                 $"WALKIE RADIO KANAL '{wantedChannels[i]}': {participantScratch.Count} Teilnehmer " +
-                                $"[{string.Join(", ", participantScratch)}] - nur ich hier. Eine jetzt " +
+                                $"[{roster}] - nur ich hier. Eine jetzt " +
                                 "hoerbare zweite Stimme mit Funk-Effekt kommt NICHT von einem anderen Client.");
                         }
                     }
@@ -162,6 +178,12 @@ namespace Earshot.Voice
             catch (System.Exception ex)
             {
                 EarshotVoiceLog.Exception("Walkie-Funkkanal-Sync fehlgeschlagen", ex);
+                // remote-hunt-v16.9: Frueher NUR Konsole — die Session-Log-Datei
+                // blieb stumm, obwohl genau hier ein gescheiterter TX-Wechsel
+                // vorbeikommen kann (Beweis-Kette Freund-Session 20260920-005940).
+                VoiceSessionLog.Alert(
+                    $"WALKIE SYNC FEHLGESCHLAGEN: {ex.GetType().Name}: {ex.Message} " +
+                    "(Kanal-Join/Leave oder TX-Wechsel abgebrochen — Sendung/Empfang kann leiden).");
             }
             finally
             {

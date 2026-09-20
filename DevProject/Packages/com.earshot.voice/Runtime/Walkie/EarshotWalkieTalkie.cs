@@ -68,6 +68,7 @@ namespace Earshot.Voice
         private bool poweredOn;
         private bool transmitting;
         private bool isLocallyOwned = true;
+        private bool loggedBlockedPttRequest;
         private WalkieDeviceOutput deviceOutput;
 
         public string ChannelId => WalkieRules.SanitizeChannelId(channelId);
@@ -154,7 +155,22 @@ namespace Earshot.Voice
                     return;
                 }
 
-                if (!WalkieRules.CanTransmit(poweredOn, canTransmit)) return;
+                // remote-hunt-v16.9: Frueher STILLER Rueckkehr. PTT-Anfragen kommen
+                // pro Frame (z.B. WalkiePlayerController.Update), deshalb nur bei
+                // Flanke (Anfrage wechselt von erlaubt auf blockiert) loggen.
+                if (!WalkieRules.CanTransmit(poweredOn, canTransmit))
+                {
+                    if (!loggedBlockedPttRequest)
+                    {
+                        loggedBlockedPttRequest = true;
+                        VoiceSessionLog.Alert(
+                            $"WALKIE PTT BLOCKIERT auf '{ChannelId}': poweredOn={poweredOn}, " +
+                            $"canTransmit={canTransmit}, isLocallyOwned={isLocallyOwned}. " +
+                            "Die Sendung geht NICHT in den Funkkanal — Ursache auf dieser " +
+                            "Client-Seite suchen (Power/Holder-Sync/CanTransmit).");
+                    }
+                    return;
+                }
                 if (transmitting) return;
 
                 // Nur ein lokales Geraet sendet gleichzeitig.
@@ -175,6 +191,9 @@ namespace Earshot.Voice
             }
             else
             {
+                // Flanken-Reset, damit die NAECHSTE blockierte PTT-Anfrage wieder
+                // genau einmal logged (remote-hunt-v16.9).
+                loggedBlockedPttRequest = false;
                 if (!transmitting) return;
                 transmitting = false;
                 WalkieTalkieRegistry.SetLocalTransmit(this, false);
