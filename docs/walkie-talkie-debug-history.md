@@ -915,7 +915,17 @@ bereits in Abschnitt 5/6 als „Vivox-Seiteneffekt von `TransmissionMode.Single`
 | mit F6 (ALL): Funk hörbar + `funkRx>0` | Single-Wechsel auf den Zweitkanal ist die Vivox-Seite des Bugs → ALL als Fix-Kandidat + Design-Entscheidung |
 | mit F6 (ALL): weiterhin nichts | tiefere Vivox-Media-Ebene → native Vivox-Logs/Core-Dump (nächstes Level) |
 
-**Status: v17 umgesetzt (2026-09-20), Test mit `funkSprecher`-Diskriminator + F6 ausstehend.**
+**Befund des zweiten Laufs (20260920-091018-388 Host / 091042-307 Client):** Der Diskriminator
+hat geantwortet — `funkSprecher=[…:E=0,00/S=False]` DURCHGEHEND waehrend der Sender-PTT
+(Host 09:11:14–26) mit lebendem Mikro (`micPeak` bis 0,29, `clipPeak` 0,68), ohne einzige
+Flanken-Aenderung im Empfaenger-Log: **Vivox selbst sieht kein Audio im Funkkanal — die Sendung
+kommt nie im Kanal an.** Damit ist Zeile 2 der Auswertungstabelle bewiesen (Single-Wechsel auf
+den Zweitkanal uneffektiv); der F6/ALL-Test ist der naechste Schritt. Nebenbefund:
+`funkRx`/`proxRx` (Ring-Peak-Auslesung der Kanal-Taps) liefert immer 0 — auch `proxRx` bleibt
+bei funktionierendem Prox-Chat 0, ist also KEIN gueltiges Signal; verlaesslich sind `isPlaying`
+und `funkSprecher`.
+
+**Status: Diskriminator beantwortet (2026-09-20) — Audio kommt nie im Funkkanal an. F6/ALL-Gegenprobe ausstehend.**
 
 ---
 

@@ -6,6 +6,19 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+### Geaendert (v17.1, 2026-09-20)
+
+- **package.json-Version 0.1.0 → 0.17.0:** Die Package-Manager-Anzeige hing seit Anbeginn bei
+  0.1.0 — ab jetzt traegt sie die interne Major-Revision (v17 = 0.17.0), damit auf einen Blick
+  sichtbar ist, ob HOTEL_GAME auf dem aktuellen Stand pinnt.
+- **Befund-Update Abschnitt 20:** Der zweite 2-Client-Lauf (20260920-091018/091042) hat den
+  Diskriminator beantwortet: `funkSprecher=[…:E=0,00/S=False]` durchgehend waehrend der
+  Sender-PTT mit lebendem Mikro (micPeak bis 0,29) — Vivox selbst sieht kein Audio im Funkkanal.
+  Sendung kommt nie im Kanal an (Single-Wechsel auf den Zweitkanal uneffektiv). F6/ALL-Test
+  ausstehend. Nebenbefund: `funkRx`/`proxRx` Ring-Peak-Auslesung der Kanal-Taps liefert immer 0
+  (auch bei funktionierendem Prox-Chat) — verlaessliche Signale sind `isPlaying` und
+  `funkSprecher`.
+
 ### Hinzugefuegt (radio-tx-probe v17, 2026-09-20)
 
 - **Diskriminator `funkSprecher=[…]`:** Die `WALKIE VIVOX RX`-Beweiszeile zeigt jetzt Vivox'
