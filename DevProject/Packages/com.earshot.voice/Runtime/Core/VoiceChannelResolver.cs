@@ -6,8 +6,14 @@ using System.Threading.Tasks;
 namespace Earshot.Voice
 {
     /// <summary>
-    /// Gemeinsamer Kanalname: Inspector-Feld, sonst Unity-Lobby, sonst Settings, sonst
-    /// <see cref="DefaultChannel"/>.
+    /// Gemeinsamer Kanalname: Inspector-Feld, sonst aktive UGS-Session, sonst Unity-Lobby,
+    /// sonst Settings, sonst <see cref="DefaultChannel"/>.
+    /// <para>
+    /// Die aktive Session geht VOR der Lobby: der Lobby-Cache
+    /// (GetJoinedLobbiesAsync) ist direkt nach Create/Leave oder nach Abstuerzen
+    /// veraltet (verwaiste Mitgliedschaften), sodass Host und Joiner in
+    /// unterschiedliche Kanaele geraten konnten.
+    /// </para>
     /// </summary>
     public static class VoiceChannelResolver
     {
@@ -27,10 +33,70 @@ namespace Earshot.Voice
         {
             if (!string.IsNullOrWhiteSpace(componentOverride)) return componentOverride.Trim();
 
+            string sessionId = TryGetActiveSessionId();
+            if (!string.IsNullOrWhiteSpace(sessionId))
+            {
+                EarshotVoiceLog.Info(
+                    "Sprachkanal aus aktiver Session: " + sessionId
+                );
+                return sessionId.Trim();
+            }
+
             string lobbyId = await TryGetUnityLobbyIdAsync();
-            if (!string.IsNullOrWhiteSpace(lobbyId)) return lobbyId.Trim();
+            if (!string.IsNullOrWhiteSpace(lobbyId))
+            {
+                EarshotVoiceLog.Info("Sprachkanal aus Lobby: " + lobbyId);
+                return lobbyId.Trim();
+            }
 
             return Resolve(null);
+        }
+
+        /// <summary>
+        /// Session-Id aus Unity.Services.Multiplayer (MultiplayerService.Instance.Sessions),
+        /// per Reflection, damit das Paket ohne Hard-Dependency bleibt. Der Projekttreiber
+        /// (z.B. RelaySessionUI) fuelle die aktive Session per Create/Join, bevor der
+        /// Spieler spawnt und Voice verbindet.
+        /// </summary>
+        private static string TryGetActiveSessionId()
+        {
+            try
+            {
+                Type serviceType = FindType(
+                    "Unity.Services.Multiplayer.MultiplayerService"
+                );
+                if (serviceType == null) return null;
+
+                object instance = serviceType.GetProperty("Instance")?.GetValue(null);
+                if (instance == null) return null;
+
+                object sessions = instance.GetType()
+                    .GetProperty("Sessions")
+                    ?.GetValue(instance);
+                if (sessions is not System.Collections.IEnumerable enumerable)
+                {
+                    return null;
+                }
+
+                foreach (object entry in enumerable)
+                {
+                    object session = entry?.GetType()
+                        .GetProperty("Value")
+                        ?.GetValue(entry);
+                    string id = session?.GetType()
+                        .GetProperty("Id")
+                        ?.GetValue(session) as string;
+                    if (!string.IsNullOrWhiteSpace(id)) return id;
+                }
+            }
+            catch (Exception ex)
+            {
+                EarshotVoiceLog.Info(
+                    "Aktive Session nicht lesbar, Lobby-Kanal gilt. " + ex.Message
+                );
+            }
+
+            return null;
         }
 
         private static async Task<string> TryGetUnityLobbyIdAsync()
