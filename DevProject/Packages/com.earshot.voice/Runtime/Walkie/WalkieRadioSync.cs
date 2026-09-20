@@ -18,11 +18,6 @@ namespace Earshot.Voice
         private int requestedRevision;
         private int appliedRevision;
 
-        // remote-hunt-v16.9 Log-Diaet: letzter protokollierter Funkkanal-Roster
-        // pro Kanal — die RADIO-KANAL-Zeile kommt jetzt nur noch bei
-        // Teilnehmer-Aenderung statt bei jedem Sync-Durchlauf.
-        private readonly Dictionary<string, string> lastRosterByChannel = new Dictionary<string, string>(4);
-
         internal static WalkieRadioSync EnsureOn(VoiceRuntime runtime)
         {
             if (runtime == null) return null;
@@ -128,46 +123,13 @@ namespace Earshot.Voice
                         await backend.SetRadioTransmittingAsync(null, false);
                     }
 
-                    // leak-hunt-v13: Funkkanal-Teilnehmer offengelegen. Ein stiller
-                    // zweiter Client im Funkkanal ist im restlichen Log unsichtbar
-                    // (er redet nicht, ist nicht im Proximity-Roster), spielt die
-                    // eigene Sendung aber an SEINEN Walkies ab - aus Sicht dieses
-                    // Spielers waere das eine Stimme mit Walkie-Effekt und konstant
-                    // bleibender Lautstaerke, unabhaengig vom eigenen Standort.
-                    // remote-hunt-v16.9: nur noch bei Roster-Aenderung loggen
-                    // (Freund-Session 20260920-005940: identische Zeile wiederholte
-                    // sich bei jedem Sync-Durchlauf dutzende Male).
-                    var participantScratch = new List<string>(8);
-                    for (int i = 0; i < wantedChannels.Count; i++)
-                    {
-                        participantScratch.Clear();
-                        backend.CopyRadioChannelParticipantIds(wantedChannels[i], participantScratch);
-
-                        string roster = string.Join(", ", participantScratch);
-                        if (lastRosterByChannel.TryGetValue(wantedChannels[i], out string lastRoster) &&
-                            string.Equals(lastRoster, roster, System.StringComparison.Ordinal))
-                        {
-                            continue;
-                        }
-                        lastRosterByChannel[wantedChannels[i]] = roster;
-
-                        if (participantScratch.Count > 1)
-                        {
-                            VoiceSessionLog.Alert(
-                                $"WALKIE RADIO KANAL '{wantedChannels[i]}': {participantScratch.Count} Teilnehmer " +
-                                $"[{roster}] - ZWEITER CLIENT IM KANAL! " +
-                                "Dessen Walkies spielen die eigene Sendung ab: Hauptverdacht fuer " +
-                                "'Stimme ueberall gleich laut' ohne 3D-Rolloff.");
-                        }
-                        else
-                        {
-                            VoiceSessionLog.Note(
-                                $"WALKIE RADIO KANAL '{wantedChannels[i]}': {participantScratch.Count} Teilnehmer " +
-                                $"[{roster}] - nur ich hier. Eine jetzt " +
-                                "hoerbare zweite Stimme mit Funk-Effekt kommt NICHT von einem anderen Client.");
-                        }
-                    }
-
+                    // v18: Vivox-Funkkanal-Roster entfaellt (kein Join mehr,
+                    // siehe VivoxVoiceBackend.EnsureRadioChannelAsync). Die
+                    // Diagnose gegen 'Stimme ueberall gleich laut' uebernimmt
+                    // der REMOTE FEED im Session-Log: Er zeigt, welcher Spieler
+                    // mit welchem Peak auf dem Bus liegt.
+                    VoiceSessionLog.Note(
+                        $"WALKIE SYNC r{revision}: keine Vivox-Funkkanal-Roster mehr (v18).");
                     appliedRevision = revision;
                     timer.Stop();
                     VoiceSessionLog.Note(

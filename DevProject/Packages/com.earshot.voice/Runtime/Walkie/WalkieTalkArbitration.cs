@@ -56,6 +56,31 @@ namespace Earshot.Voice
             }
         }
 
+        /// <summary>
+        /// v18: Meldet einen Spieler auf ALLEN Kanaelen ab. Benoetigt, wenn ein
+        /// Remote-PTT endet und der zugehoerige Kanal nicht mehr bekannt ist
+        /// (Registry hat ihn bereits entfernt).
+        /// </summary>
+        public void ClearPlayer(string playerId)
+        {
+            if (string.IsNullOrEmpty(playerId)) return;
+            string suffix = "|" + playerId;
+
+            scratchKeys.Clear();
+            foreach (var pair in speakingSince)
+            {
+                if (pair.Key.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                {
+                    scratchKeys.Add(pair.Key);
+                }
+            }
+
+            for (int i = 0; i < scratchKeys.Count; i++)
+            {
+                speakingSince.Remove(scratchKeys[i]);
+            }
+        }
+
         public void ClearAll() => speakingSince.Clear();
 
         /// <summary>

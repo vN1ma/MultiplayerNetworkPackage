@@ -53,11 +53,21 @@ namespace Earshot.Voice.Tests
         }
 
         [Test]
-        public void MouthVolumeScale_DampensOnlyWhileOnRadio()
+        public void RemoteTransmit_TracksPlayerAndChannel()
         {
-            Assert.AreEqual(1f, WalkieRules.MouthVolumeScale(false, 0.1f));
-            Assert.AreEqual(0.1f, WalkieRules.MouthVolumeScale(true, 0.1f), 0.0001f);
-            Assert.AreEqual(0f, WalkieRules.MouthVolumeScale(true, 0f), 0.0001f);
+            Assert.IsFalse(WalkieTalkieRegistry.TryGetRemoteTransmitChannel("p1", out _));
+
+            WalkieTalkieRegistry.SetRemoteTransmit("p1", "ops", true);
+            Assert.IsTrue(WalkieTalkieRegistry.TryGetRemoteTransmitChannel("p1", out string channel));
+            Assert.AreEqual("ops", channel);
+            Assert.IsTrue(WalkieTalkieRegistry.RemoteTransmitChannels.ContainsKey("p1"));
+
+            WalkieTalkieRegistry.SetRemoteTransmit("p1", "ops", true);
+            Assert.AreEqual(1, WalkieTalkieRegistry.RemoteTransmitChannels.Count);
+
+            WalkieTalkieRegistry.SetRemoteTransmit("p1", null, false);
+            Assert.IsFalse(WalkieTalkieRegistry.TryGetRemoteTransmitChannel("p1", out _));
+            Assert.AreEqual(0, WalkieTalkieRegistry.RemoteTransmitChannels.Count);
         }
 
         [Test]

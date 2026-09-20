@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using Unity.Services.Vivox.AudioTaps;
 
 namespace Earshot.Voice
 {
@@ -25,6 +26,8 @@ namespace Earshot.Voice
             new Dictionary<string, VoiceEmitter>(System.StringComparer.OrdinalIgnoreCase);
         private readonly WalkieTalkArbitration radioArbitration = new WalkieTalkArbitration();
         private readonly List<string> radioChannelScratch = new List<string>(4);
+        private List<string> remoteTransmitScratch = new List<string>(4);
+        private List<string> remoteTransmitPrevious = new List<string>(4);
 
         private IVoiceBackend backend;
         private AudioListener listener;
@@ -168,6 +171,17 @@ namespace Earshot.Voice
             {
                 TryBindEmitter(emitter);
                 byPlayerId[speaker.PlayerId] = emitter;
+
+                // v18 (walkie-ueber-proximity): Der Funk-Empfang haengt am
+                // PROXIMITY-Tap dieses Spielers. Der Feed zieht dessen Strom
+                // volume-unabhaengig per Reflection aus dem VivoxAudioProcessor
+                // und legt ihn nur auf den Walkie-Bus, solange der Spieler remote
+                // sendet (WalkieTalkieRegistry.SetRemoteTransmit, Spiel-synced).
+                var remoteFeed = emitter.gameObject.AddComponent<WalkieParticipantTapFeed>();
+                remoteFeed.Bind(
+                    speaker.PlayerId,
+                    emitter.GetComponent<VivoxParticipantTap>(),
+                    speaker.Source);
             }
 
             emitters.Add(emitter);
@@ -190,6 +204,14 @@ namespace Earshot.Voice
                 mapped == emitter)
             {
                 byPlayerId.Remove(key.PlayerId);
+            }
+
+            if (key.PathKind == VoicePathKind.Proximity)
+            {
+                // v18: Spieler ist weg - Remote-PTT und Arbitration aufloesen,
+                // sonst bliebe er als Sprecher im Funk haengen.
+                WalkieTalkieRegistry.SetRemoteTransmit(key.PlayerId, null, false);
+                radioArbitration.ClearPlayer(key.PlayerId);
             }
 
             if (key.PathKind == VoicePathKind.Radio)
@@ -376,15 +398,16 @@ namespace Earshot.Voice
                     sample.Clamp();
                 }
 
-                // Funk ersetzt Mund: Proximity leiser, solange derselbe Sprecher funkt.
-                bool onRadio = HasActiveRadioSpeech(emitter.PlayerId);
-                float dampening = WalkieTalkieRegistry.ActiveMouthDampening;
-                emitter.VolumeScale = WalkieRules.MouthVolumeScale(onRadio, dampening);
+                // v18: Mund-Stimme bleibt WAHRNEHMBAR, solange der Sprecher funkt -
+                // 'Funk ersetzt Mund' ist gestorben: Das Funk-Signal reist im
+                // Proximity-Kanal mit, Nachbarn hoeren die Stimme ganz normal
+                // raeumlich (Design-Entscheidung Lauf 4, siehe OFFENE-PUNKTE).
 
                 emitter.LastContext = context;
                 emitter.SetTarget(in sample);
             }
 
+            SyncRemoteTransmitters();
             PublishRadioWinners();
         }
 
@@ -434,6 +457,13 @@ namespace Earshot.Voice
                 AddUniqueChannel(radioChannelScratch, d.ChannelId);
             }
 
+            // v18: Kanaele mit Remote-PTT muessen auch ohne Radio-Emitter/
+            // Geraet publishen (Arbitration laeuft ueber SetRemoteTransmit).
+            foreach (var pair in WalkieTalkieRegistry.RemoteTransmitChannels)
+            {
+                AddUniqueChannel(radioChannelScratch, pair.Value);
+            }
+
             for (int i = 0; i < radioChannelScratch.Count; i++)
             {
                 string channelId = radioChannelScratch[i];
@@ -469,18 +499,53 @@ namespace Earshot.Voice
             list.Add(channelId);
         }
 
-        private bool HasActiveRadioSpeech(string playerId)
+        /// <summary>
+        /// v18: Spieler mit Remote-PTT in die Funk-Arbitration einspeisen. Ihr
+        /// Empfangs-Feed (WalkieParticipantTapFeed) schreibt derweil deren
+        /// Proximity-Strom in den Bus. Radio-Emitter (falls ein Backend sie
+        /// tatsaechlich liefert) pflegen ihre eigene Arbitration ueber
+        /// EvaluateRadioEmitter und werden hier nicht verdoppelt.
+        /// </summary>
+        private void SyncRemoteTransmitters()
+        {
+            remoteTransmitScratch.Clear();
+
+            foreach (var pair in WalkieTalkieRegistry.RemoteTransmitChannels)
+            {
+                if (string.IsNullOrEmpty(pair.Key) || string.IsNullOrEmpty(pair.Value)) continue;
+                if (HasRadioEmitterFor(pair.Key)) continue;
+
+                radioArbitration.SetSpeaking(pair.Value, pair.Key, true, Time.unscaledTime);
+                remoteTransmitScratch.Add(pair.Key);
+            }
+
+            // PTT-Ende (oder Kanalwechsel): Spieler, die im letzten Durchlauf
+            // aktiv waren und es jetzt nicht mehr sind, abmelden.
+            for (int i = 0; i < remoteTransmitPrevious.Count; i++)
+            {
+                string playerId = remoteTransmitPrevious[i];
+                if (remoteTransmitScratch.Contains(playerId)) continue;
+                if (WalkieTalkieRegistry.TryGetRemoteTransmitChannel(playerId, out _)) continue;
+
+                radioArbitration.ClearPlayer(playerId);
+            }
+
+            // Listen tauschen (Kopie ohne neue Allokation).
+            var swap = remoteTransmitPrevious;
+            remoteTransmitPrevious = remoteTransmitScratch;
+            remoteTransmitScratch = swap;
+        }
+
+        private bool HasRadioEmitterFor(string playerId)
         {
             for (int i = 0; i < emitters.Count; i++)
             {
                 var e = emitters[i];
                 if (e == null || e.PathKind != VoicePathKind.Radio) continue;
-                if (!string.Equals(e.PlayerId, playerId, System.StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(e.PlayerId, playerId, System.StringComparison.OrdinalIgnoreCase))
                 {
-                    continue;
+                    return true;
                 }
-
-                if (e.TapIsPlaying) return true;
             }
 
             return false;

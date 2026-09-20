@@ -53,10 +53,6 @@ namespace Earshot.Voice
         [Tooltip("Alter-Funk-Charakter (Bit-/Sample-Reduktion + leichte Verzerrung), damit Walkie-Stimme sich hoerbar von Mund-Stimme unterscheidet.")]
         private float radioCrunch = 0.35f;
 
-        [SerializeField, Range(0f, 1f)]
-        [Tooltip("Mund-/Naehe-Stimme des Senders, solange er funkt (Funk ersetzt Mund).")]
-        private float mouthVolumeWhileTransmitting = 0.12f;
-
         [SerializeField, Min(1f)]
         [Tooltip("Ab dieser Entfernung zum Geraet ist der Funkton praktisch weg (Leak-Grenze).")]
         private float maxHearingDistance = 8f;
@@ -98,8 +94,6 @@ namespace Earshot.Voice
         /// bei Netcode). Default true fuer Abwaertskompatibilitaet ohne Netzwerk. Siehe <see cref="SetLocalOwnership"/>.
         /// </summary>
         public bool IsLocallyOwned => isLocallyOwned;
-
-        public float MouthVolumeWhileTransmitting => Mathf.Clamp01(mouthVolumeWhileTransmitting);
 
         public float MaxHearingDistance => Mathf.Max(1f, maxHearingDistance);
 
@@ -312,7 +306,6 @@ namespace Earshot.Voice
         {
             channelId = WalkieRules.SanitizeChannelId(channelId);
             transmissionDelaySeconds = WalkieRules.ClampDelaySeconds(transmissionDelaySeconds);
-            mouthVolumeWhileTransmitting = Mathf.Clamp01(mouthVolumeWhileTransmitting);
             radioVolume = Mathf.Clamp(radioVolume, 0.05f, 1f);
             sidetoneWorldVolume = Mathf.Clamp(sidetoneWorldVolume, 0.05f, 1f);
             radioCrunch = Mathf.Clamp01(radioCrunch);

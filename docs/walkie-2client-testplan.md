@@ -87,18 +87,36 @@ die letzte offene Frage (wo stirbt das Audio?):
   stumm sein; Verdacht: Vivox-native Ausgabe auf dem virtuellen Kabel (AUDIO-DEVICES-Warnzeile).
   v17/v17.1 ändern KEINEN Audio-Code. Verifikation: Windows-Lautstärkemixer beim Auftreten prüfen.
 
-**Vierter Lauf — ALL-PTT in Proximity-Weite (5–10 m Abstand, entscheidend):**
+**Vierter Lauf (2026-09-20, 09:46, `voice-20260920-094642-932`/`094655-952`) — BEANTWORTET, ROOT CAUSE GEFUNDEN:**
 
-1. **Normal reden** (ohne PTT) → Mund-Stimme in der anderen Instanz räumlich und leise hörbar
-   (Baseline, dass Empfang generell funktioniert).
-2. **Sender: F6 drücken** (Log: `WALKIE DIAGNOSE F6: Funk-Sendemodus ALL`), PTT halten + reden:
-   - **Mund-Stimme bleibt hörbar** → TX-Pipeline arbeitet; nur der FUNKKANAL ist kaputt
-     (Medien-/URI-/Tap-Ebene) → Kanal-URIs und Funk-Tap-Registrierung vergleichen.
-   - **Mund-Stimme verstummt komplett** → der TX-Wechsel tötet die Mikro-Übertragung insgesamt
-     (Vivox-Core/sessiongroup-Bug) → native Vivox-Logs aktivieren.
-3. **Sender: nochmal F6** (zurück auf SINGLE), PTT + reden → Mund-Stimme muss jetzt verstummen
-   (Kontrollprobe: zeigt, dass der Moduswechsel überhaupt greift).
-4. Parallel: Tritt das laute Echo auf → Windows-Lautstärkemixer prüfen (welche App schlägt aus?).
-5. Logs beider Instanzen in `EarshotLogs` sichern.
+- Mund-Stimme blieb bei F6/ALL-PTT hörbar → TX-Pipeline arbeitet; Funkkanal trotzdem `E=0,00`.
+- SDK-Quellen-Beweis: `TransmittingChannels` = Client-Buchhaltung (keine Server-Quittung);
+  `JoinChannelAsync` kehrt vor dem Audio-Media-Connect zurück — das Medium des Zweitkanals
+  verbindet nie (Roster ohne Audio-Bein, ohne Fehlermeldung). Details: debug-history Abschnitt 21.
+- Echo = Testbett-Artefakt (zwei Clients, ein Mikro → zwei versetzte räumliche Kopien in Nähe).
 
-*Angelegt 2026-09-20 (v16.9), Nachtest-Runden v17/v17.1 ergänzt. Bei Änderung der Szenarien: hier pflegen, nicht nur im Chat.*
+**Fix v18 (walkie-ueber-proximity):** Funk läuft komplett über den Proximity-Kanal — kein
+Vivox-Funkkanal-Join, kein TX-Wechsel, F6 entfällt. Empfang: `WalkieParticipantTapFeed`
+(Proximity-Tap → Walkie-Bus, nur während Remote-PTT) + Remote-PTT-Sync
+(`WalkieWorldItem.walkieTransmitting` NetworkVariable → `WalkieTalkieRegistry.SetRemoteTransmit`).
+„Funk ersetzt Mund" entfällt: Mund-Stimme bleibt beim Funken für Nachbarn voll hörbar.
+
+**Lauf 5 — Validierung v18 (nach dem Update von HOTEL_GAME auf den v18-Pin):**
+
+1. **Setup:** Editor-Host + Windows-Build wie gehabt, beide Walkies an, Kanal `default`,
+   beide Spieler weit auseinander starten (>25 m).
+2. **Sender PTT + reden** (kein F6 mehr nötig): Empfänger muss die Funk-Stimme am Walkie
+   hören — unabhängig von der Distanz zum Walkie (Leak-Grenze 8 m bleibt).
+   Log-Beweis (Empfänger): `WALKIE REMOTE FEED an: <playerId> @ 'default'` beim PTT-Start,
+   danach `WALKIE REMOTE FEED Signal: … peak>0`, alle 5 s `WALKIE REMOTE FEED Herzschlag`,
+   und `WALKIE OUTPUT AN … mode=REMOTE … stream=<playerId>` am Gerät.
+3. **Sender PTT, Empfänger in Nähe (2–5 m):** Mund-Stimme des Senders bleibt räumlich hörbar
+   (Design v18) UND zusätzlich die Funk-Stimme am Walkie. Beides gleichzeitig ist korrekt.
+4. **Half-Duplex:** Empfänger hält selbst PTT, während der Sender funkt → Fremd-Empfang
+   verstummt am eigenen Gerät (Sidetone statt Fremdstimme).
+5. **Richtungswechsel:** Rollen tauschen (Build sendet, Editor hört) — gleiche Beweiszeilen.
+6. **Kontrollen:** `FUNK kanal 'default': kein Vivox-Join mehr (v18)` je Kanal im Log;
+   `funkKanal=[]` und `vivoxTx`-Zeilen entfallen; 0× `WALKIE PTT BLOCKIERT`.
+7. Logs beider Instanzen in `EarshotLogs` sichern und auswerten.
+
+*Angelegt 2026-09-20 (v16.9), Nachtest-Runden v17/v17.1/v18 ergänzt. Bei Änderung der Szenarien: hier pflegen, nicht nur im Chat.*

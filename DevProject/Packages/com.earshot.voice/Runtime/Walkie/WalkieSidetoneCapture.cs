@@ -12,12 +12,8 @@ namespace Earshot.Voice
     [AddComponentMenu("")]
     internal sealed class WalkieSidetoneCapture : MonoBehaviour
     {
-        private const string DiagnosticRevision = "radio-tx-probe-v17";
+        private const string DiagnosticRevision = "walkie-over-proximity-v18";
 
-        // v17.1 (radio-tx-probe): F6 schaltet den Funk-Sendemodus zwischen Single
-        // ('Funk ersetzt Mund', Default) und ALL ('Proximity parallel', Experiment)
-        // um - IMMER aktiv, auch im Windows-Build, ohne Inspector-Checkbox
-        // (siehe VivoxVoiceBackend.RadioTransmissionModeAll und HandleRadioTxModeHotkey).
         // v16.5: Leak-Hunt-Hotkeys (F7-F12) sind per Default AUS. Der Root-Cause
         // ist gefixt und im Spiel bestaetigt, und F7 wird jetzt vom
         // VoiceGraphDebugHUD benutzt. Zum Nachtesten der alten Diagnose die
@@ -111,11 +107,6 @@ namespace Earshot.Voice
             TryPinTapToActiveChannel();
             EnsureRxTaps();
             EnforceSilentDirectOutput();
-
-            // v17.1: F6 (Funk-Sendemodus Single/ALL) ist IMMER aktiv - auch im
-            // Windows-Build, ganz ohne Inspector-Checkbox. Die Leak-Hunt-Keys
-            // F7-F12 bleiben an die Checkbox gebunden.
-            HandleRadioTxModeHotkey();
 
             // v16.5: Leak-Hunt-Hotkeys nur noch auf Wunsch (Default aus).
             // Beim Ausschalten werden aktive Diagnose-Zustaende (F8-Geraet,
@@ -702,10 +693,6 @@ namespace Earshot.Voice
         {
             bool restored = false;
 
-            // v17.1: F6/ALL wird hier NICHT zurueckgesetzt - der Sendemodus ist
-            // seit v17.1 immer verfuegbar (auch im Build) und bleibt gewaehlt,
-            // bis erneut F6 gedrückt wird oder die Sitzung endet.
-
             if (diagnosticMasterMuted)
             {
                 AudioListener.volume = diagnosticMasterVolumeBefore;
@@ -747,27 +734,6 @@ namespace Earshot.Voice
                     "WALKIE DIAGNOSE: Hotkeys deaktiviert - alle Diagnose-Zustaende " +
                     "(F8-Geraet, F9-Mute, F10-Volume, F11-Feed, F12-Master) zurueckgesetzt.");
             }
-        }
-
-        /// <summary>
-        /// v17.1: F6 schaltet den Funk-Sendemodus Single ('Funk ersetzt Mund',
-        /// Default) gegen ALL ('Proximity parallel', Experiment) um - immer
-        /// aktiv, auch im Windows-Build (kein Inspector noetig). Beweislage
-        /// Lokaltest 20260920-091018: Vivox sieht kein Audio im Funkkanal, obwohl
-        /// der Single-Wechsel quittiert ist - ALL ist die Gegenprobe und zugleich
-        /// Live-Test der offenen Design-Frage. Zurueck auf Single per erneutem F6
-        /// oder automatisch beim Naechsten Sitzungsstart.
-        /// </summary>
-        private void HandleRadioTxModeHotkey()
-        {
-            if (!Input.GetKeyDown(KeyCode.F6)) return;
-
-            VivoxVoiceBackend.RadioTransmissionModeAll = !VivoxVoiceBackend.RadioTransmissionModeAll;
-            VoiceSessionLog.Alert(
-                VivoxVoiceBackend.RadioTransmissionModeAll
-                    ? "WALKIE DIAGNOSE F6: Funk-Sendemodus ALL - der naechste Tastendruck auf " +
-                      "die Sendetaste sendet in Proximity UND Funkkanal (Proximity parallel, Experiment)."
-                    : "WALKIE DIAGNOSE F6: Funk-Sendemodus SINGLE - Funk ersetzt Mund (Default).");
         }
 
         private void HandleDiagnosticHotkeys()

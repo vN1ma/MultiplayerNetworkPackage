@@ -944,7 +944,52 @@ laut"-Muster, Abschnitt v14/F8). v17/v17.1 haben KEINEN Audio-Code verändert (D
 Version) — der Effekt ist entstanden, weil erstmals außerhalb der Hörweite getestet wurde.
 Verifikation: Windows-Lautstärkemixer beim Auftreten prüfen (welche App schlägt aus?).
 
-**Status: Single-Verdacht widerlegt (2026-09-20) — Mikro erreicht den Funkkanal nie, egal welcher TX-Modus. Nächster Test: ALL-PTT in Proximity-Weite (lebt die Mund-Stimme weiter?).**
+## 21. Vierter Lauf + SDK-Beweis: ROOT CAUSE = Audio-Medium des Funkkanals verbindet nie; Fix v18 „walkie-ueber-proximity" (2026-09-20)
+
+**Vierter Lauf ausgewertet (2026-09-20, 09:46, `voice-20260920-094642-932` Host / `voice-20260920-094655-952` Build-Client) — ROOT CAUSE GEFUNDEN:**
+
+- Host-ALL-PTT 09:48:39–41 mit lebendem Mikro (`micPeak=0,24`, Sidetone-Clip-Peak 0,31),
+  `vivoxTx=[prox | earshot-radio-default]`, Spieler 1–4 m auseinander (Proximity-Weite):
+  Nutzerbericht bestätigt **Mund-Stimme bleibt bei F6/ALL-PTT hörbar** → TX-Pipeline arbeitet.
+  Trotzdem `funkSprecher=[…:E=0,00/S=False]`, `funkRxPlaying=False`.
+- Dritter Lauf, 09:36:21–24: Host-ALL-PTT mit `micPeak` bis 0,40, Client sah ihn im Funkkanal
+  mit `E=0,00` — mitten im Sende­fenster. Sendekette endgültig unschuldig.
+- **SDK-Quellbefund (heute, entscheidend):** `VivoxService.TransmittingChannels`
+  (`LoginSession.cs:486–505`) gibt nur `_transmissionType`/`_transmittingChannel` zurück —
+  **reine Client-Buchhaltung**. Unser `vivoxTx=[…]` war NIE eine Server-Quittung.
+  `ChannelSession.BeginConnect` (Zeile 600–621) quittiert `sessiongroup_add_session` und kehrt
+  zurück, **BEVOR** das Audio-Medium (`session_audio_connected`) steht — bleibt es aus, gibt es
+  keinen Fehler, nur ein Roster ohne Audio-Bein. Dazu die eigene v16-Erfahrung: Auf den
+  Funkkanal gepinnte Capture-Taps liefern NIE Daten = der Funkkanal hat schlicht keine
+  Capture-Kette, weil sein Audio-Medium nie verbindet. Das erklärt ALLE Befunde aller Läufe:
+  Roster ja (Session-Add quittiert), E=0, alle Taps stumm, egal ob Single oder ALL — während
+  der Proximity-Kanal (Medien-Slot 1) überall liefert.
+- **Echo-Klärung (Nutzerbericht korrigiert die frühere Deutung):** Das „leichtes Echo" der
+  Prox-Stimme tritt NUR in Spielernähe auf — kein Vivox-native-Leak, sondern Testbett-Artefakt:
+  Beide Clients an einem PC teilen sich EIN Mikro (Parsec Virtual Audio); beim Sprechen senden
+  BEIDE dieselbe Stimme auf den Prox-Kanal, man hört zwei leicht versetzte räumliche Kopien
+  (+ Walkie-Delay-Kette). Außerhalb der räumlichen Weite verstummen beide Kopien. v17/v17.1
+  änderten keinen Audio-Code.
+
+**Fix v18 (walkie-ueber-proximity) — Architektur-Wechsel statt weiterer Vivox-Proben:**
+
+Das tote Vivox-Zweitkanal-Medium wird nicht mehr benutzt. Sendung UND Empfang laufen über den
+Proximity-Kanal, der nachweislich in jede Richtung liefert:
+
+1. `VivoxVoiceBackend`: kein Funkkanal-Join mehr (dokumentiertes No-Op), kein TX-Wechsel mehr —
+   die Stimme bleibt auf dem Proximity-Kanal (F6/`RadioTransmissionModeAll` entfallen).
+2. `WalkieParticipantTapFeed` (neu): Empfangs-Feed pro Proximity-Teilnehmer — zieht deren Strom
+   volume-unabhaengig per Reflection aus dem VivoxAudioProcessor (wie der Sidetone-Feed,
+   Beweis: Unity nullt OnAudioFilterRead-Samples bei volume=0) und legt ihn nur waehrend
+   Remote-PTT auf den Walkie-Bus (WalkieDeviceOutput spielt Filter/Crunch/Delay wie gehabt).
+3. `WalkieTalkieRegistry.SetRemoteTransmit` + NetworkVariable `walkieTransmitting`
+   (WalkieWorldItem, Owner-Schreibrecht): Das Spiel synced, wer auf welchem Kanal sendet —
+   die autoritative „wer ist auf Sendung"-Wahrheit für Arbitration und Half-Duplex.
+4. Design-Entscheidung (Nutzerwunsch, Lauf 4): „Funk ersetzt Mund" entfernt — die Mund-Stimme
+   bleibt während PTT für Nachbarn voll wahrnehmbar (`mouthVolumeWhileTransmitting`/
+   `MouthVolumeScale` entfallen).
+
+**Status (2026-09-20): ROOT CAUSE bewiesen und umgangen — Funk läuft über Proximity. Nächster Test: Lauf 5 (Validierung, siehe walkie-2client-testplan.md).**
 
 ---
 

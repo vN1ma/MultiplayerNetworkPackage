@@ -9,7 +9,7 @@
 | Taste | Funktion | Komponente / Ort | Status |
 |---|---|---|---|
 | **F7** | **Voice Graph Debug HUD** ein-/ausblenden (unten rechts: eigene Zone/Position, Schallweg zu Kollegen & Walkies mit Tür-Offenheiten, Luftlinie vs. Laufweg) | `VoiceGraphDebugHUD` (automatisch am „Earshot Voice Runtime"-Objekt) | **AKTIV** (Default) |
-| F6 | Funk-Sendemodus umschalten: Single „Funk ersetzt Mund" (Default) ↔ ALL „Proximity parallel" (Experiment, radio-tx-probe v17) | `WalkieSidetoneCapture` | **AKTIV** (immer, auch im Build — kein Inspector nötig) |
+| F6 | **ENTFALLEN (v18):** Der Funk-Sendemodus-Wechsel Single↔ALL ist obsolet — es gibt keinen zweiten Vivox-Sendekanal mehr, Funk läuft über den Proximity-Kanal (siehe CHANGELOG v18.0). | — | frei |
 | F8 | Vivox-Ausgabe auf ein anderes physisches Gerät umleiten (Leak-Hunt: trennt Vivox-native vom Unity-Mix) | `WalkieSidetoneCapture` | AUS (default, siehe unten) |
 | F9 | Tap-Hard-Mute (Not-Killswitch der Direktausgabe) | `WalkieSidetoneCapture` | AUS |
 | F10 | Tap-Volume Legacy-Modus volume=1 (Gegenprobe „Leak war die Direktausgabe") | `WalkieSidetoneCapture` | AUS |
@@ -32,8 +32,8 @@ Aktivieren (nur während Play):
 
 Beim Wegnehmen des Hakens werden die aktiven Leak-Hunt-Diagnose-Zustände automatisch zurückgesetzt
 (F8-Gerätewechsel, F9-Mute, F10-Volume, F11-Feed-Block, F12-Master) — es bleibt nichts verstellt.
-**F6 fällt nicht darunter:** Der Sendemodus-Wechsel ist seit v17.1 immer aktiv (auch im Build,
-ohne Checkbox) und bleibt gewählt, bis erneut F6 gedrückt wird oder die Sitzung endet.
+**F6 ist seit v18 frei:** Der ehemalige Sendemodus-Wechsel ist obsolet (kein zweiter Sendekanal
+mehr, siehe CHANGELOG v18.0 / debug-history Abschnitt 21).
 
 **Achtung F7-Konflikt:** Sind die Leak-Hunt-Hotkeys aktiv, feuern F7 doppelt (HUD-Toggle UND
 Vivox-native-Mute). In dem Fall am „Earshot Voice Runtime"-Objekt in der Komponente

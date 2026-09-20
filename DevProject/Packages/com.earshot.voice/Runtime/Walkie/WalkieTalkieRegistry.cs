@@ -24,8 +24,6 @@ namespace Earshot.Voice
 
         public static string LocalTransmitChannelId { get; private set; }
 
-        public static float ActiveMouthDampening { get; private set; } = 0.12f;
-
         public static float ActiveTransmissionDelaySeconds { get; private set; } = 0.2f;
 
         /// <summary>Extra-Daempfung nur fuer lokales Sidetone (Feedback-Bremse).</summary>
@@ -67,7 +65,6 @@ namespace Earshot.Voice
                 localTransmitDevice = device;
                 LocalIsTransmitting = true;
                 LocalTransmitChannelId = device.ChannelId;
-                ActiveMouthDampening = device.MouthVolumeWhileTransmitting;
                 ActiveTransmissionDelaySeconds = device.TransmissionDelaySeconds;
                 ActiveSidetoneWorldVolume = device.SidetoneWorldVolume;
             }
@@ -89,6 +86,70 @@ namespace Earshot.Voice
                 : radioSpeakers.Remove(playerId);
 
             if (changed) RaiseChanged();
+        }
+
+        // v18 (walkie-ueber-proximity): Remote-PTT-Zustaende. Das Spiel synced
+        // ueber sein Netzwerk (z.B. NetworkVariable), welcher Spieler gerade auf
+        // welchem logischen Funkkanal sendet, und meldet das hier. Sendung und
+        // Empfang laufen ueber den Proximity-Kanal - dieser Zustand ist der
+        // Autoritative "wer ist auf Sendung", nicht mehr das Vivox-Funkkanal-
+        // Roster (dessen Audio-Medium in keinem Modus verbindet, Beweislage
+        // Laeufe 1-4, siehe docs/walkie-talkie-debug-history.md Abschnitt v18).
+        private static readonly Dictionary<string, string> remoteTransmitChannels =
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Spieler -> logischer Funkkanal, auf dem er gerade sendet.</summary>
+        public static IReadOnlyDictionary<string, string> RemoteTransmitChannels =>
+            remoteTransmitChannels;
+
+        /// <summary>
+        /// Meldet (netzwerk-synced vom Spiel), dass ein Spieler auf einem logischen
+        /// Funkkanal sendet bzw. aufhoert. Der eigene Spieler darf hier ebenfalls
+        /// gemeldet werden - Empfangs-Feeds ignorieren ihn ohnehin (kein eigener
+        /// Proximity-Participant-Tap).
+        /// </summary>
+        public static void SetRemoteTransmit(string playerId, string channelId, bool transmitting)
+        {
+            if (string.IsNullOrEmpty(playerId)) return;
+
+            bool changed;
+            if (transmitting)
+            {
+                string sanitized = WalkieRules.SanitizeChannelId(channelId);
+                if (remoteTransmitChannels.TryGetValue(playerId, out string current) &&
+                    string.Equals(current, sanitized, StringComparison.OrdinalIgnoreCase))
+                {
+                    changed = false;
+                }
+                else
+                {
+                    remoteTransmitChannels[playerId] = sanitized;
+                    changed = true;
+                }
+            }
+            else
+            {
+                changed = remoteTransmitChannels.Remove(playerId);
+            }
+
+            if (changed)
+            {
+                MarkRadioSpeaker(playerId, transmitting);
+                RaiseChanged();
+            }
+        }
+
+        /// <summary>
+        /// Wahr, solange der Spieler remote sendet; liefert den logischen Kanal.
+        /// </summary>
+        public static bool TryGetRemoteTransmitChannel(string playerId, out string channelId)
+        {
+            channelId = null;
+            if (string.IsNullOrEmpty(playerId)) return false;
+            if (!remoteTransmitChannels.TryGetValue(playerId, out string found)) return false;
+
+            channelId = found;
+            return true;
         }
 
         public static bool IsRadioSpeakerPresent(string playerId)
@@ -241,8 +302,8 @@ namespace Earshot.Voice
         {
             devices.Clear();
             radioSpeakers.Clear();
+            remoteTransmitChannels.Clear();
             ClearLocalTransmit();
-            ActiveMouthDampening = 0.12f;
             ActiveTransmissionDelaySeconds = 0.2f;
             ActiveSidetoneWorldVolume = 0.35f;
         }

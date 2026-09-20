@@ -31,19 +31,6 @@ namespace Earshot.Voice
         /// </summary>
         public static bool DiagnosticMuteVivoxNativeOutputOnLogin = false;
 
-        /// <summary>
-        /// v17 (radio-tx-probe): Experiment-Schalter fuer den Funk-Sendemodus,
-        /// zur Laufzeit per F6 umschaltbar (diagnosticHotkeysEnabled). Beweislage
-        /// Lokaltest 20260920-071757/071918: Vivox quittiert den Single-Wechsel
-        /// auf den Funkkanal (vivoxTx), Mikro und Empfaenger-Taps stehen - aber
-        /// KEIN Audio erreicht je den Funkkanal (funkRx=0, beide Richtungen).
-        /// Verdacht: Vivox speist die Mikro-Aufnahme unter TransmissionMode.Single
-        /// nicht in den ZWEITEN Audiokanal. Mit true sendet PTT in ALLE Kanäle
-        /// (Proximity parallel) - Gegenprobe und zugleich Test der offenen
-        /// Design-Frage (OFFENE-PUNKTE 'Walkie-Talkie V1').
-        /// </summary>
-        public static bool RadioTransmissionModeAll = false;
-
         public string DisplayName => "Unity Vivox";
 
         public bool IsConnected => !string.IsNullOrEmpty(proximityChannelName);
@@ -262,28 +249,27 @@ namespace Earshot.Voice
             }
         }
 
-        public async Task EnsureRadioChannelAsync(string logicalChannelId)
+        // v18 (walkie-ueber-proximity): Vivox-Funkkanaele werden NICHT mehr
+        // gejoint. Beweislage Laeufe 1-4 (siehe docs/walkie-talkie-debug-history.md
+        // Abschnitt v18): Das Audio-Medium des zweiten Vivox-Kanals verbindet in
+        // keinem Sendemodus - JoinGroupChannelAsync kehrt nach der
+        // sessiongroup_add_session-Quittung zurueck, BEVOR das Audio-Medium
+        // steht; bleibt es aus, gibt es keinen Fehler, nur ein Roster ohne
+        // Audio-Bein (E=0, alle Taps stumm, vivoxTx war nur Client-Buchhaltung).
+        // Sendung und Empfang laufen deshalb komplett ueber den Proximity-Kanal.
+        private readonly HashSet<string> radioJoinSkipLogged =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        public Task EnsureRadioChannelAsync(string logicalChannelId)
         {
-            if (!IsConnected) return;
-
             string id = WalkieRules.SanitizeChannelId(logicalChannelId);
-            if (radioChannels.Contains(id)) return;
+            if (string.IsNullOrEmpty(id) || !IsConnected) return Task.CompletedTask;
+            if (!radioJoinSkipLogged.Add(id)) return Task.CompletedTask;
 
-            string vivoxName = WalkieRules.ToVivoxRadioChannel(id);
-            EarshotVoiceLog.Info($"Funkkanal '{id}' ({vivoxName}) wird betreten.");
-
-            await VivoxService.Instance.JoinGroupChannelAsync(vivoxName, ChatCapability.AudioOnly);
-
-            // Nach Join nicht automatisch auf Funk senden — Proximity bleibt Sendekanal,
-            // bis SetRadioTransmittingAsync(true) kommt.
-            if (string.IsNullOrEmpty(transmittingRadioLogicalId))
-            {
-                await VivoxService.Instance.SetChannelTransmissionModeAsync(
-                    TransmissionMode.Single, proximityChannelName);
-            }
-
-            radioChannels.Add(id);
-            AttachExistingParticipants(vivoxName);
+            VoiceSessionLog.Note(
+                $"FUNK kanal '{id}': kein Vivox-Join mehr (v18) - Funk-Audio reist im " +
+                "Proximity-Kanal mit, Empfang laeuft ueber den Remote-PTT-Sync des Spiels.");
+            return Task.CompletedTask;
         }
 
         public async Task LeaveRadioChannelAsync(string logicalChannelId)
@@ -315,7 +301,7 @@ namespace Earshot.Voice
             }
         }
 
-        public async Task SetRadioTransmittingAsync(string logicalChannelId, bool transmitting)
+        public Task SetRadioTransmittingAsync(string logicalChannelId, bool transmitting)
         {
             // remote-hunt-v16.9: Frueher STILLER Rueckkehrpunkt. Ohne Log war ein PTT
             // ohne Vivox-Verbindung im Session-Log unsichtbar (Beweis Freund-Session
@@ -329,85 +315,31 @@ namespace Earshot.Voice
                         "FUNK sendet BLOCKIERT: Vivox nicht verbunden " +
                         "(SetRadioTransmittingAsync bricht ab — Sendung geht nirgendwo hin).");
                 }
-                return;
+                return Task.CompletedTask;
             }
 
             if (!transmitting)
             {
                 transmittingRadioLogicalId = null;
-                await VivoxService.Instance.SetChannelTransmissionModeAsync(
-                    TransmissionMode.Single, proximityChannelName);
-                VoiceSessionLog.Note("FUNK sendet aus (zurueck auf Proximity-Kanal)");
-                return;
+                VoiceSessionLog.Note(
+                    "FUNK sendet aus (Vivox-Sendemodus stand ohnehin auf Proximity).");
+                return Task.CompletedTask;
             }
 
             string id = WalkieRules.SanitizeChannelId(logicalChannelId);
-            if (!radioChannels.Contains(id))
-            {
-                await EnsureRadioChannelAsync(id);
-            }
-
-            string vivoxName = WalkieRules.ToVivoxRadioChannel(id);
             transmittingRadioLogicalId = id;
 
-            // v17 (radio-tx-probe): Beweislage Lokaltest 20260920-071757 - Vivox
-            // quittiert den Single-Wechsel, aber kein Audio erreicht je den
-            // Funkkanal. RadioTransmissionModeAll (F6) sendet stattdessen in
-            // ALLE Kanaele - Gegenprobe gegen den Single-auf-Zweitkanal-Verdacht
-            // und zugleich Test der offenen Design-Frage 'Proximity parallel'.
-            bool allMode = RadioTransmissionModeAll;
-
-            try
-            {
-                if (allMode)
-                {
-                    await VivoxService.Instance.SetChannelTransmissionModeAsync(TransmissionMode.All);
-                }
-                else
-                {
-                    await VivoxService.Instance.SetChannelTransmissionModeAsync(
-                        TransmissionMode.Single, vivoxName);
-                }
-            }
-            catch (System.Exception ex)
-            {
-                VoiceSessionLog.Alert(
-                    $"FUNK sendet FEHLGESCHLAGEN auf '{id}' (Modus {(allMode ? "ALL" : "Single")}): " +
-                    $"Vivox-Moduswechsel wirft ({ex.GetType().Name}: {ex.Message}) — " +
-                    "Sendung bleibt auf dem vorherigen Kanal.");
-                throw;
-            }
-
-            // Bestaetigung mit Vivox-Sicht: TransmittingChannels ist die autoritative
-            // SDK-Liste. Steht der Funkkanal dort nicht drin, ist der Moduswechsel
-            // STILL gescheitert (ohne Exception) — genau dann greift diese Zeile.
+            // v18 (walkie-ueber-proximity): Kein Vivox-Kanalwechsel mehr. Die
+            // Beweislage der Laeufe 1-4 (debug-history Abschnitt v18) zeigt:
+            // Selbst mit TransmissionMode.All erreicht das Mikro nie den
+            // Funkkanal, waehrend der Proximity-Kanal liefert. Die Stimme
+            // bleibt deshalb auf dem Proximity-Kanal - Nachbarn hoeren sie
+            // raeumlich, Walkie-Empfaenger bekommen sie per Remote-PTT-Sync
+            // (Spiel) und WalkieParticipantTapFeed (Paket) aufs Geraet.
             VoiceSessionLog.Note(
-                allMode
-                    ? $"FUNK sendet auf '{id}' (Modus ALL: Proximity MIT auf dem Draht — Experiment F6), " +
-                      $"vivoxTx=[{string.Join(" | ", ReadTransmittingChannelsSnapshot())}]"
-                    : $"FUNK sendet auf '{id}' (Proximity stumm auf dem Draht), " +
-                      $"vivoxTx=[{string.Join(" | ", ReadTransmittingChannelsSnapshot())}]");
-        }
-
-        private static string[] ReadTransmittingChannelsSnapshot()
-        {
-            try
-            {
-                var service = VivoxService.Instance;
-                var channels = service != null ? service.TransmittingChannels : null;
-                if (channels == null || channels.Count == 0) return new string[0];
-
-                var result = new string[channels.Count];
-                for (int i = 0; i < channels.Count; i++)
-                {
-                    result[i] = channels[i] ?? string.Empty;
-                }
-                return result;
-            }
-            catch
-            {
-                return new string[0];
-            }
+                $"FUNK sendet auf '{id}' (v18: kein Vivox-Kanalwechsel - Audio reist im " +
+                "Proximity-Kanal mit, Empfang via Remote-PTT-Sync).");
+            return Task.CompletedTask;
         }
 
         private async Task EnsureLoggedInAsync(string displayName)

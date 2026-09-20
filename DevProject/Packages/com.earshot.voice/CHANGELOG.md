@@ -6,6 +6,41 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+### v18.0 walkie-ueber-proximity (2026-09-20)
+
+- **ROOT-CAUSE-FIX: Funk laeuft komplett ueber den Proximity-Kanal.** Beweislage
+  der Laeufe 1-4 (debug-history Abschnitt v18): Das Audio-Medium des zweiten
+  Vivox-Kanals ('earshot-radio-...') verbindet in keinem Sendemodus - Single
+  wie ALL werden quittiert, aber `funkSprecher` bleibt E=0, waehrend der
+  Proximity-Kanal liefert. `JoinChannelAsync` kehrt nach der
+  `sessiongroup_add_session`-Quittung zurueck, BEVOR das Audio-Medium steht,
+  und `TransmittingChannels` ist reine Client-Buchhaltung (LoginSession.cs:486)
+  - nie eine Server-Bestaetigung. Der Vivox-Funkkanal wird deshalb nicht mehr
+  gejoint und der Vivox-Sendemodus nicht mehr umgeschaltet: Die Stimme reist
+  im Proximity-Kanal.
+- **Neu: WalkieParticipantTapFeed.** Empfangs-Feed pro Proximity-Teilnehmer -
+  zieht deren Strom volume-unabhaengig per Reflection aus dem
+  VivoxAudioProcessor (wie der Sidetone-Feed) und legt ihn nur waehrend
+  Remote-PTT auf den Walkie-Bus.
+- **Neu: WalkieTalkieRegistry.SetRemoteTransmit.** Das Spiel synced (z.B. per
+  NetworkVariable), welcher Spieler auf welchem logischen Kanal sendet; das
+  ist jetzt die autoritative 'wer ist auf Sendung'-Wahrheit fuer Arbitration
+  und Half-Duplex (statt des toten Vivox-Funkkanal-Rosters).
+- **Design-Entscheidung (Lauf 4): 'Funk ersetzt Mund' ist entfernt.** Waehrend
+  PTT bleibt die Mund-Stimme fuer Nachbarn voll wahrnehmbar - Feld
+  `mouthVolumeWhileTransmitting` (EarshotWalkieTalkie) und
+  `WalkieRules.MouthVolumeScale` entfallen. Prefabs behalten einen verwaisten
+  serialisierten Wert (harmlos, wird ignoriert).
+- **Entfernt: F6-Experiment (Single/ALL) und `RadioTransmissionModeAll`.**
+  Der TX-Modus-Wechsel ist obsolet - es gibt keinen zweiten Sendekanal mehr.
+  `VivoxVoiceBackend.EnsureRadioChannelAsync` ist ein dokumentiertes No-Op,
+  `SetRadioTransmittingAsync` protokolliert nur noch.
+- Betroffene Dateien: `WalkieParticipantTapFeed.cs` (neu),
+  `WalkieTalkieRegistry.cs`, `WalkieTalkArbitration.cs`, `VoiceRuntime.cs`,
+  `VivoxVoiceBackend.cs`, `EarshotWalkieTalkie.cs`, `WalkieRules.cs`,
+  `WalkieSidetoneCapture.cs`, `WalkieRadioSync.cs`,
+  `Tests/EditMode/WalkieRulesTests.cs`, `package.json`
+
 ### Geaendert (v17.1, 2026-09-20)
 
 - **F6 immer aktiv — auch im Windows-Build, ohne Inspector-Checkbox:** Der Funk-Sendemodus-Wechsel

@@ -106,15 +106,6 @@ namespace Earshot.Voice
         }
 
         /// <summary>
-        /// Mund-Stimme leiser, solange derselbe Sprecher übers Funkgerät sendet.
-        /// </summary>
-        public static float MouthVolumeScale(bool speakerTransmittingOnRadio, float dampeningWhileRadio)
-        {
-            if (!speakerTransmittingOnRadio) return 1f;
-            return Mathf.Clamp01(dampeningWhileRadio);
-        }
-
-        /// <summary>
         /// Funk-Delay in Sekunden, begrenzt auf einen hoerbaren, stabilen Bereich.
         /// </summary>
         public static float ClampDelaySeconds(float seconds)
