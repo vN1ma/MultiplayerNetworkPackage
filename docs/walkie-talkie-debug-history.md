@@ -925,7 +925,26 @@ den Zweitkanal uneffektiv); der F6/ALL-Test ist der naechste Schritt. Nebenbefun
 bei funktionierendem Prox-Chat 0, ist also KEIN gueltiges Signal; verlaesslich sind `isPlaying`
 und `funkSprecher`.
 
-**Status: Diskriminator beantwortet (2026-09-20) — Audio kommt nie im Funkkanal an. F6/ALL-Gegenprobe ausstehend.**
+**F6/ALL-Gegenprobe durchgeführt (dritter Lauf, 20260920-093314-809/093348-865):** F6 wurde auf
+BEIDEN Instanzen gedrückt (nur der Sender braucht es — Empfangen ist modusunabhängig). Ergebnis:
+**auch `TransmissionMode.All` liefert nichts in den Funkkanal** — Empfänger-`funkSprecher` blieb
+überall `E=0,00/S=False` (auch während Sender-ALL-PTT mit `micPeak=0,34`,
+`vivoxTx=[prox | earshot-radio-default]`), `OUTPUT AN mode=REMOTE` weiterhin 0×. Damit ist der
+Verdacht „Single-Modus ist schuld" WIDERLEGT — das Mikro erreicht den Funkkanal unabhängig vom
+TX-Modus nie. Achtung Beweis-Lücke dieses Laufs: Die Spieler standen ~46 m auseinander (außerhalb
+der 25-m-Proximity-Weite) — damit war auch der Prox-Kanal als zweite Beweisspur tot (räumlicher
+Tap = Lautstärke 0). Der nächste Test braucht Proximity-Reichweite (siehe OFFENE-PUNKTE).
+
+**Echo-Beobachtung desselben Laufs:** Spieler hörte sich beim Proximity-Reden laut selbst
+(„slight echo, ganz laut"). Bei 46 m muss der räumliche Proximity-Tap stumm sein — die laut
+gehörte Stimme lief folglich NICHT durch die räumliche Pipeline, sondern mit hoher
+Wahrscheinlichkeit über die **Vivox-native Ausgabe** (vivoxOutMuted=False, Ausgabegerät =
+virtuelles Kabel — genau das Szenario der AUDIO-DEVICES-Warnzeile; altes „Stimme überall gleich
+laut"-Muster, Abschnitt v14/F8). v17/v17.1 haben KEINEN Audio-Code verändert (Diff: F6-Hotkey +
+Version) — der Effekt ist entstanden, weil erstmals außerhalb der Hörweite getestet wurde.
+Verifikation: Windows-Lautstärkemixer beim Auftreten prüfen (welche App schlägt aus?).
+
+**Status: Single-Verdacht widerlegt (2026-09-20) — Mikro erreicht den Funkkanal nie, egal welcher TX-Modus. Nächster Test: ALL-PTT in Proximity-Weite (lebt die Mund-Stimme weiter?).**
 
 ---
 
