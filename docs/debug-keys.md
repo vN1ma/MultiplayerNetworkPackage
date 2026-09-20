@@ -2,19 +2,20 @@
 
 > Zentrale Belegungstabelle aller F-Tasten im Earshot-Voice-Package und im HOTEL_GAME.
 > Führe jede Änderung hier nach, damit keine Taste doppelt belegt wird.
-> Stand: 2026-09-19 (v16.5).
+> Stand: 2026-09-20 (v17).
 
 ## Belegungstabelle
 
 | Taste | Funktion | Komponente / Ort | Status |
 |---|---|---|---|
 | **F7** | **Voice Graph Debug HUD** ein-/ausblenden (unten rechts: eigene Zone/Position, Schallweg zu Kollegen & Walkies mit Tür-Offenheiten, Luftlinie vs. Laufweg) | `VoiceGraphDebugHUD` (automatisch am „Earshot Voice Runtime"-Objekt) | **AKTIV** (Default) |
+| F6 | Funk-Sendemodus umschalten: Single „Funk ersetzt Mund" (Default) ↔ ALL „Proximity parallel" (Experiment, radio-tx-probe v17) | `WalkieSidetoneCapture` | AUS |
 | F8 | Vivox-Ausgabe auf ein anderes physisches Gerät umleiten (Leak-Hunt: trennt Vivox-native vom Unity-Mix) | `WalkieSidetoneCapture` | AUS (default, siehe unten) |
 | F9 | Tap-Hard-Mute (Not-Killswitch der Direktausgabe) | `WalkieSidetoneCapture` | AUS |
 | F10 | Tap-Volume Legacy-Modus volume=1 (Gegenprobe „Leak war die Direktausgabe") | `WalkieSidetoneCapture` | AUS |
 | F11 | Sidetone-Datenfluss zu den Walkie-Geräten kappen | `WalkieSidetoneCapture` | AUS |
 | F12 | Unity-Gesamtausgabe stumm schalten (AudioListener-Master; greift seit v16.4 auch für Walkies) | `WalkieSidetoneCapture` | AUS |
-| F1–F6, F13+ | frei | — | frei |
+| F1–F5, F13+ | frei | — | frei |
 
 Im HOTEL_GAME selbst sind **keine** F-Tasten belegt (Stand 2026-09-19, `Assets/`-Durchsuchung).
 
@@ -30,11 +31,11 @@ Aktivieren (nur während Play):
 3. Haken **„Diagnostic Hotkeys Enabled"** setzen.
 
 Beim Wegnehmen des Hakens werden alle aktiven Diagnose-Zustände automatisch zurückgesetzt
-(F8-Gerätewechsel, F9-Mute, F10-Volume, F11-Feed-Block, F12-Master) — es bleibt nichts verstellt.
+(F6-Sendemodus, F8-Gerätewechsel, F9-Mute, F10-Volume, F11-Feed-Block, F12-Master) — es bleibt nichts verstellt.
 
 **Achtung F7-Konflikt:** Sind die Leak-Hunt-Hotkeys aktiv, feuern F7 doppelt (HUD-Toggle UND
 Vivox-native-Mute). In dem Fall am „Earshot Voice Runtime"-Objekt in der Komponente
-**Voice Graph Debug HUD** die Toggle-Taste umstellen (z. B. F6) — oder die Leak-Hunt-Keys aus lassen.
+**Voice Graph Debug HUD** die Toggle-Taste umstellen — oder die Leak-Hunt-Keys aus lassen.
 
 ## Historie der Belegung
 

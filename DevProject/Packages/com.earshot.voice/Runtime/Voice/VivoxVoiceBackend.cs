@@ -31,6 +31,19 @@ namespace Earshot.Voice
         /// </summary>
         public static bool DiagnosticMuteVivoxNativeOutputOnLogin = false;
 
+        /// <summary>
+        /// v17 (radio-tx-probe): Experiment-Schalter fuer den Funk-Sendemodus,
+        /// zur Laufzeit per F6 umschaltbar (diagnosticHotkeysEnabled). Beweislage
+        /// Lokaltest 20260920-071757/071918: Vivox quittiert den Single-Wechsel
+        /// auf den Funkkanal (vivoxTx), Mikro und Empfaenger-Taps stehen - aber
+        /// KEIN Audio erreicht je den Funkkanal (funkRx=0, beide Richtungen).
+        /// Verdacht: Vivox speist die Mikro-Aufnahme unter TransmissionMode.Single
+        /// nicht in den ZWEITEN Audiokanal. Mit true sendet PTT in ALLE Kanäle
+        /// (Proximity parallel) - Gegenprobe und zugleich Test der offenen
+        /// Design-Frage (OFFENE-PUNKTE 'Walkie-Talkie V1').
+        /// </summary>
+        public static bool RadioTransmissionModeAll = false;
+
         public string DisplayName => "Unity Vivox";
 
         public bool IsConnected => !string.IsNullOrEmpty(proximityChannelName);
@@ -176,6 +189,47 @@ namespace Earshot.Voice
         }
 
         /// <summary>
+        /// v17 (radio-tx-probe): Vivox-Sicht der Fernseher-Sprachaktivitaet im
+        /// Funkkanal als kompakte Beschreibung ('playerId:E=0.00/S=True', ...).
+        /// Das ist der unabhaengige Beweis-Traeger dafuer, ob Vivox selbst Audio
+        /// im Kanal sieht - unabhaengig von unseren Audio-Taps: Steht hier
+        /// E&gt;0/S=True, waehrend funkRx=0 bleibt, ist unsere Tap-Schicht schuld;
+        /// bleibt beides 0/False, kommt die Sendung nie im Kanal an.
+        /// Leer, wenn kein Fernseher im Kanal ist oder der Kanal fehlt.
+        /// </summary>
+        public string DescribeRadioChannelSpeech(string logicalChannelId)
+        {
+            string id = WalkieRules.SanitizeChannelId(logicalChannelId);
+            if (string.IsNullOrEmpty(id)) return string.Empty;
+
+            try
+            {
+                if (VivoxService.Instance == null ||
+                    !VivoxService.Instance.ActiveChannels.TryGetValue(
+                        WalkieRules.ToVivoxRadioChannel(id), out var list))
+                {
+                    return string.Empty;
+                }
+
+                var scratch = new List<string>(4);
+                for (int i = 0; i < list.Count; i++)
+                {
+                    var participant = list[i];
+                    if (participant == null || participant.IsSelf) continue;
+                    scratch.Add(
+                        participant.PlayerId + ":E=" + participant.AudioEnergy.ToString("0.00") +
+                        "/S=" + participant.SpeechDetected);
+                }
+                return string.Join(", ", scratch);
+            }
+            catch (Exception)
+            {
+                // Diagnose-Pfad darf den Aufrufer niemals werfen.
+                return string.Empty;
+            }
+        }
+
+        /// <summary>
         /// v16-Diagnose: Teilnehmer des Proximity-Kanals. Der Proximity-Kanal war
         /// der blinde Fleck der v13-Auswertung (dort wurde nur der Funkkanal
         /// geloggt) — hier erscheint jedes Gruppenmitglied mit Namen.
@@ -296,19 +350,31 @@ namespace Earshot.Voice
             string vivoxName = WalkieRules.ToVivoxRadioChannel(id);
             transmittingRadioLogicalId = id;
 
-            // Funk ersetzt Mund: nur in den Funkkanal senden.
-            // remote-hunt-v16.9: Exceptions landen jetzt IM Session-Log — vorher
-            // fraß nur die Konsole sie (WalkieRadioSync-Log-Datei blieb stumm).
+            // v17 (radio-tx-probe): Beweislage Lokaltest 20260920-071757 - Vivox
+            // quittiert den Single-Wechsel, aber kein Audio erreicht je den
+            // Funkkanal. RadioTransmissionModeAll (F6) sendet stattdessen in
+            // ALLE Kanaele - Gegenprobe gegen den Single-auf-Zweitkanal-Verdacht
+            // und zugleich Test der offenen Design-Frage 'Proximity parallel'.
+            bool allMode = RadioTransmissionModeAll;
+
             try
             {
-                await VivoxService.Instance.SetChannelTransmissionModeAsync(
-                    TransmissionMode.Single, vivoxName);
+                if (allMode)
+                {
+                    await VivoxService.Instance.SetChannelTransmissionModeAsync(TransmissionMode.All);
+                }
+                else
+                {
+                    await VivoxService.Instance.SetChannelTransmissionModeAsync(
+                        TransmissionMode.Single, vivoxName);
+                }
             }
             catch (System.Exception ex)
             {
                 VoiceSessionLog.Alert(
-                    $"FUNK sendet FEHLGESCHLAGEN auf '{id}': Vivox-Moduswechsel wirft " +
-                    $"({ex.GetType().Name}: {ex.Message}) — Sendung bleibt auf dem vorherigen Kanal.");
+                    $"FUNK sendet FEHLGESCHLAGEN auf '{id}' (Modus {(allMode ? "ALL" : "Single")}): " +
+                    $"Vivox-Moduswechsel wirft ({ex.GetType().Name}: {ex.Message}) — " +
+                    "Sendung bleibt auf dem vorherigen Kanal.");
                 throw;
             }
 
@@ -316,8 +382,11 @@ namespace Earshot.Voice
             // SDK-Liste. Steht der Funkkanal dort nicht drin, ist der Moduswechsel
             // STILL gescheitert (ohne Exception) — genau dann greift diese Zeile.
             VoiceSessionLog.Note(
-                $"FUNK sendet auf '{id}' (Proximity stumm auf dem Draht), " +
-                $"vivoxTx=[{string.Join(" | ", ReadTransmittingChannelsSnapshot())}]");
+                allMode
+                    ? $"FUNK sendet auf '{id}' (Modus ALL: Proximity MIT auf dem Draht — Experiment F6), " +
+                      $"vivoxTx=[{string.Join(" | ", ReadTransmittingChannelsSnapshot())}]"
+                    : $"FUNK sendet auf '{id}' (Proximity stumm auf dem Draht), " +
+                      $"vivoxTx=[{string.Join(" | ", ReadTransmittingChannelsSnapshot())}]");
         }
 
         private static string[] ReadTransmittingChannelsSnapshot()

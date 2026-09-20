@@ -853,6 +853,70 @@ nächstes Level).
 **Status: v16.9 umgesetzt (2026-09-20), 2-Client-Lokaltest ausstehend.** Fix der eigentlichen Ursache
 erst NACH Befund — nicht raten (Lektion Abschnitt 6: zwei Bugs als ein Symptom behandelt).
 
+## 20. Lokaltest-Befund + Vivox-SDK-Analyse: TX-Wechsel wird quittiert, Audio erreicht nie den Kanal (2026-09-20, v17)
+
+**Symptom:** Erster 2-Client-Lokaltest (Editor-Host + Windows-Build, localhost; Logs
+`voice-20260920-071757-988-pid40892` = Host, `voice-20260920-071918-407-pid34080` = Client).
+Proximity-Stimme hörbar, Sidetone am Boden-Walkie hörbar — aber PTT-Funk kommt beim anderen
+Client nie an, BEIDE Richtungen getestet (Host-PTT 07:22:34–45 + 07:22:50–54, Client-PTT
+07:22:09–12 + 07:23:01–13). Bestätigt damit den Freund-Session-Befund (Abschnitt 19) 1:1.
+
+**Beweistabelle (beide Logs):**
+
+| Prüfpunkt | Befund |
+|---|---|
+| PTT-Guard | unschuldig — 0× `WALKIE PTT BLOCKIERT`, `WALKIE PTT an` überall |
+| Vivox verbunden | unschuldig — 0× `FUNK sendet BLOCKIERT` |
+| Moduswechsel-Exception | unschuldig — 0× `FUNK sendet FEHLGESCHLAGEN` |
+| TX-Wechsel | **quittiert** — `FUNK sendet auf 'default' … vivoxTx=[earshot-radio-default]` auf beiden Clients |
+| Mikro | liefert — `micPeak` bis 0,85 während PTT (Capture-Tap) |
+| Funkkanal-Join | OK — `funkKanal=[ICH, …]` auf beiden Seiten, `TAP Funk an: … @default`, Funk-RX-Sonde registriert |
+| Empfang | **TOT** — `funkRx=0`, `funkRxPlaying` nie `True`, 0× `OUTPUT AN mode=REMOTE`, beide Richtungen |
+| Vivox-Fehler | keine — Player.log/Editor.log ohne vx-Exceptions |
+
+**SDK-Analyse (com.unity.services.vivox@16.11.0, PackageCache-Quellen):**
+- `VivoxServiceInternal.SetChannelTransmissionModeAsync` → `LoginSession.SetTransmissionModeAsync` →
+  `SetTransmittingAsync` → Core-Request `vx_req_sessiongroup_set_tx_session_t` mit dem
+  SessionHandle des Funkkanals. Unser v16.9-await umschließt den Request komplett — keine
+  Exception heißt: **Core hat den Wechsel quittiert.**
+- `LoginSession.SetTransmissionModeAsync` setzt `_transmittingChannel` VOR dem Core-Request —
+  `vivoxTx=[…]` allein wäre nur Soll-Zustand; zusammen mit der fehlenden Exception ist der
+  Request aber bestätigt.
+- Kein konkurrierender TX-Umschalter im Package (Grep: nur `VivoxVoiceBackend` + `WalkieRadioSync`).
+- Kanal-Join: `JoinGroupChannelAsync(name, AudioOnly)` → `ConnectAsync(connectAudio:true,
+  connectText:false, switchTransmission:false)` — Proximity- und Funkkanal identisch gejoint.
+- **Beweis-Lücke:** `NO_REMOTE_WINNER` wird aus `emitter.TapIsPlaying` gespeist
+  (`VoiceRuntime.EvaluateRadioEmitter`), nicht aus Vivox' Teilnehmer-Sicht — unsere Arbitration
+  kann „Audio ist im Kanal, unser Tap ist taub" nicht von „Audio kommt nie an" unterscheiden.
+  PEGEL-Zeilen (`VoiceSessionRecorder`, nutzt `participant.AudioEnergy`) fehlen in beiden Logs
+  (Recorder in diesem Projekt nicht aktiv).
+
+**Schlussfolgerung:** Spiel-Code und SDK-Aufrufe sind sauber; das Mikro-Audio erreicht trotz
+quittiertem Single-Wechsel NIE den zweiten Audiokanal. Verdacht: **Vivox speist die
+Mikro-Aufnahme unter `TransmissionMode.Single` nicht in den ZWEITEN Audiokanal** — historisch
+bereits in Abschnitt 5/6 als „Vivox-Seiteneffekt von `TransmissionMode.Single`" notiert.
+
+**v17 (radio-tx-probe) — Diagnose + Gegenprobe, Default null Verhaltens-Change:**
+1. `WALKIE VIVOX RX`-Zeile jetzt mit `funkSprecher=[playerId:E=0.00/S=True,…]` — Vivox' EIGENE
+   Energie-/Speech-Sicht der Fernseher im Funkkanal (`VivoxVoiceBackend.DescribeRadioChannelSpeech`,
+   `VivoxParticipant.AudioEnergy/SpeechDetected`). Der fehlende Diskriminator.
+2. **F6** (Leak-Hunt-Checkbox) schaltet `VivoxVoiceBackend.RadioTransmissionModeAll`: PTT sendet
+   dann per `TransmissionMode.All` in Proximity UND Funkkanal — Gegenprobe gegen den
+   Single-auf-Zweitkanal-Verdacht UND Live-Test der offenen Design-Frage „Proximity parallel"
+   (OFFENE-PUNKTE). Beim Abschalten der Checkbox wird der Modus sicher auf Single zurückgesetzt.
+3. Diagnostic-Revision: `radio-tx-probe-v17`.
+
+**Auswertungsschema des nächsten Tests (Empfänger-Log):**
+
+| Beobachtung | Diagnose |
+|---|---|
+| `funkSprecher E>0/S=True` bei `funkRx=0` | Audio IST im Kanal, unsere Tap-Schicht ist taub → Empfänger-Tap-Schicht graben |
+| `funkSprecher E=0/S=False` (Single-Modus) | Sendung kommt nie im Kanal an → Vivox-Speisung, F6-Gegenprobe |
+| mit F6 (ALL): Funk hörbar + `funkRx>0` | Single-Wechsel auf den Zweitkanal ist die Vivox-Seite des Bugs → ALL als Fix-Kandidat + Design-Entscheidung |
+| mit F6 (ALL): weiterhin nichts | tiefere Vivox-Media-Ebene → native Vivox-Logs/Core-Dump (nächstes Level) |
+
+**Status: v17 umgesetzt (2026-09-20), Test mit `funkSprecher`-Diskriminator + F6 ausstehend.**
+
 ---
 
 *Dokument angelegt 2026-09-18. Bei jedem weiteren gescheiterten oder erfolgreichen Ansatz: hier einen kurzen Abschnitt ergänzen (Datum, Symptom, Hypothese, Fix, Log-Beweis, Ergebnis), nicht nur CHANGELOG-Zeilen.*

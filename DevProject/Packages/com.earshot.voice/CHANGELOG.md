@@ -6,6 +6,21 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+### Hinzugefuegt (radio-tx-probe v17, 2026-09-20)
+
+- **Diskriminator `funkSprecher=[…]`:** Die `WALKIE VIVOX RX`-Beweiszeile zeigt jetzt Vivox'
+  EIGENE Sicht der Funkkanal-Fernseher (`playerId:E=…/S=…` aus `VivoxParticipant.AudioEnergy/
+  SpeechDetected`, via `VivoxVoiceBackend.DescribeRadioChannelSpeech`). Beweislage des ersten
+  2-Client-Lokaltests (20260920-071757/071918): Vivox quittiert den TX-Wechsel auf den Funkkanal,
+  Mikro und Empfaenger-Taps stehen — aber kein Audio erreicht je den Kanal; die Arbitration
+  (`NO_REMOTE_WINNER`) basiert nur auf unserem Tap und kann das nicht unterscheiden.
+- **F6-Experiment `VivoxVoiceBackend.RadioTransmissionModeAll`** (leak-hunt-Checkbox noetig,
+  Auto-Restore beim Deaktivieren): PTT sendet dann per `TransmissionMode.All` in Proximity UND
+  Funkkanal statt Single→Funkkanal — Gegenprobe gegen den Verdacht, dass Vivox die Mikro-Speisung
+  unter `TransmissionMode.Single` nicht in den ZWEITEN Audiokanal leitet, und zugleich Live-Test
+  der offenen Design-Frage „Proximity parallel" (OFFENE-PUNKTE). Default weiterhin Single
+  („Funk ersetzt Mund") — null Verhaltens-Change ohne F6.
+
 ### Hinzugefuegt (remote-hunt v16.9, 2026-09-20)
 
 - **Sender-Seiten-Diagnose** (Beweis-Kette: Freund-Session 20260920-005940 — die Sendung des

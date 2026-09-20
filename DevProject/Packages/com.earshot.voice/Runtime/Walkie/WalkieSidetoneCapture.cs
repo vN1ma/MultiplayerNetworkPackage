@@ -12,8 +12,11 @@ namespace Earshot.Voice
     [AddComponentMenu("")]
     internal sealed class WalkieSidetoneCapture : MonoBehaviour
     {
-        private const string DiagnosticRevision = "remote-hunt-v16.9";
+        private const string DiagnosticRevision = "radio-tx-probe-v17";
 
+        // v17 (radio-tx-probe): F6 schaltet den Funk-Sendemodus zwischen Single
+        // ('Funk ersetzt Mund', Default) und ALL ('Proximity parallel', Experiment)
+        // um - siehe VivoxVoiceBackend.RadioTransmissionModeAll.
         // v16.5: Leak-Hunt-Hotkeys (F7-F12) sind per Default AUS. Der Root-Cause
         // ist gefixt und im Spiel bestaetigt, und F7 wird jetzt vom
         // VoiceGraphDebugHUD benutzt. Zum Nachtesten der alten Diagnose die
@@ -338,12 +341,19 @@ namespace Earshot.Voice
             // Ende, funkRxPlaying nie True — der entscheidende Remote-Befund).
             string proxKanal = string.Join(", ", proxParticipantScratch);
             string funkKanal = string.Join(", ", radioParticipantScratch);
+            // v17 (radio-tx-probe): Vivox' EIGENE Sicht der Fernseher-Sprachaktivitaet
+            // im Funkkanal - unabhaengig von unseren Taps. E>0/S=True bei funkRx=0
+            // waere Tap-Schicht schuld; beides 0/False heisst: Sendung kommt nie im
+            // Kanal an (Beweislage Lokaltest 20260920-071757: genau das pruefen).
+            string funkSprecher = vivoxBackend != null && radioRxScratch.Count > 0
+                ? vivoxBackend.DescribeRadioChannelSpeech(radioRxScratch[0])
+                : string.Empty;
             bool funkPlaying = radioRxSource != null && radioRxSource.isPlaying;
             bool proxPlaying = proxRxSource != null && proxRxSource.isPlaying;
             bool ptt = WalkieTalkieRegistry.LocalIsTransmitting;
             bool funkSignal = funkRx > 0.0001f;
             string stateKey = ptt + "|" + funkPlaying + "|" + proxPlaying + "|" +
-                funkSignal + "|" + proxKanal + "|" + funkKanal;
+                funkSignal + "|" + proxKanal + "|" + funkKanal + "|" + funkSprecher;
             bool changed = !string.Equals(stateKey, lastRxStateKey, System.StringComparison.Ordinal);
             bool heartbeat = changed || Time.unscaledTime >= nextRxHeartbeat;
             if (!heartbeat) return;
@@ -364,6 +374,7 @@ namespace Earshot.Voice
                 $"masterPeak={masterPeak:0.000000}, masterRms={masterRms:0.000000}, " +
                 $"proxKanal=[{proxKanal}], " +
                 $"funkKanal=[{funkKanal}], " +
+                $"funkSprecher=[{funkSprecher}], " +
                 $"ptt={ptt}, " +
                 $"revision='{DiagnosticRevision}'");
         }
@@ -685,6 +696,14 @@ namespace Earshot.Voice
         {
             bool restored = false;
 
+            // v17 (radio-tx-probe): F6 ist ein Verhaltens-Schalter (ALL-Sendemodus)
+            // - sicher zurueck auf Single (Default), damit nichts verstellt bleibt.
+            if (VivoxVoiceBackend.RadioTransmissionModeAll)
+            {
+                VivoxVoiceBackend.RadioTransmissionModeAll = false;
+                restored = true;
+            }
+
             if (diagnosticMasterMuted)
             {
                 AudioListener.volume = diagnosticMasterVolumeBefore;
@@ -730,6 +749,23 @@ namespace Earshot.Voice
 
         private void HandleDiagnosticHotkeys()
         {
+            // v17 (radio-tx-probe): F6 schaltet den Funk-Sendemodus um.
+            // Beweislage Lokaltest 20260920-071757: Vivox quittiert den
+            // Single-Wechsel auf den Funkkanal, aber kein Audio erreicht je den
+            // Kanal. Kommt mit ALL Funk-Audio beim Gegenueber an, ist der
+            // Single-Wechsel auf den zweiten Audiokanal die Vivox-Seite des
+            // Bugs - und 'Proximity parallel' gleich mitgetestet.
+            if (Input.GetKeyDown(KeyCode.F6))
+            {
+                VivoxVoiceBackend.RadioTransmissionModeAll = !VivoxVoiceBackend.RadioTransmissionModeAll;
+                VoiceSessionLog.Alert(
+                    VivoxVoiceBackend.RadioTransmissionModeAll
+                        ? "WALKIE DIAGNOSE F6: Funk-Sendemodus ALL - der naechste Tastendruck auf " +
+                          "die Sendetaste sendet in Proximity UND Funkkanal (Proximity parallel, " +
+                          "Experiment)."
+                        : "WALKIE DIAGNOSE F6: Funk-Sendemodus SINGLE - Funk ersetzt Mund (Default).");
+            }
+
             // v14: Vivox spielt EMPFANGENEN Kanal-Ton zusaetzlich nativ auf sein
             // Ausgabegeraet (ausserhalb des Unity-Mixes, laeuft aber im Unity-Prozess
             // und zeigt sich im Windows-Mixer daher als 'Hotel Game'). Fuer getappte

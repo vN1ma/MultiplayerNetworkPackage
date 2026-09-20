@@ -54,4 +54,22 @@ auf dem Weg von `WALKIE PTT an` bis zur hörbaren Sendung:
 3. Root-Cause-Fix erst DANN umsetzen (nicht auf Verdacht — Lektion Abschnitt 6).
 4. Danach: Freund-Ferntest (Internet) mit derselben Checkliste.
 
-*Angelegt 2026-09-20 (v16.9). Bei Änderung der Szenarien: hier pflegen, nicht nur im Chat.*
+## Nachtest-Runde v17 (radio-tx-probe)
+
+Der erste Lauf (2026-09-20) ergab: Sendekette komplett unschuldig, TX-Wechsel von Vivox
+quittiert — aber kein Audio erreicht je den Funkkanal. Der zweite Lauf mit v17 beantwortet
+die letzte offene Frage (wo stirbt das Audio?):
+
+1. **Szenario 2 normal wiederholen** (Single-Modus). Danach im **Empfänger**-Log prüfen:
+   - `funkSprecher=[…:E=0.xx/S=True]` bei `funkRx=0` → Audio ist im Kanal, unsere Tap-Schicht
+     ist schuld (Empfängerseite graben).
+   - `funkSprecher=[…:E=0.00/S=False]` → Sendung kommt nie im Kanal an (Vivox-Speisung).
+2. **Sender: Leak-Hunt-Checkbox aktivieren** (Objekt „Earshot Voice Runtime" → Komponente
+   „Walkie Sidetone Capture" → „Diagnostic Hotkeys Enabled"), dann **F6** drücken
+   (`WALKIE DIAGNOSE F6: Funk-Sendemodus ALL` im Log) und Szenario 2 wiederholen:
+   - Funk-Audio kommt an (`funkRx>0`, `OUTPUT AN mode=REMOTE`) → Single-Wechsel auf den zweiten
+     Kanal ist die Vivox-Seite des Bugs; ALL ist der Fix-Kandidat (und testet „Proximity parallel").
+   - Immer noch nichts → nächstes Level (native Vivox-Logs).
+3. Logs wieder in `EarshotLogs` sichern und BOTH mitschicken.
+
+*Angelegt 2026-09-20 (v16.9), Nachtest-Runde v17 ergänzt. Bei Änderung der Szenarien: hier pflegen, nicht nur im Chat.*
