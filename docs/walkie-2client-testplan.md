@@ -71,4 +71,34 @@ die letzte offene Frage (wo stirbt das Audio?):
    - Immer noch nichts → nächstes Level (native Vivox-Logs).
 3. Logs wieder in `EarshotLogs` sichern und BOTH mitschicken.
 
-*Angelegt 2026-09-20 (v16.9), Nachtest-Runde v17 ergänzt. Bei Änderung der Szenarien: hier pflegen, nicht nur im Chat.*
+## Nachtest-Runde v17.1 (dritter Lauf ausgewertet, vierter Lauf geplant)
+
+**Dritter Lauf (2026-09-20, `voice-20260920-093314-809`/`093348-865`) — beide offenen Fragen beantwortet:**
+
+- `funkSprecher=[…:E=0,00/S=False]` durchgehend während Sender-PTT mit lebendem Mikro → Sendung
+  kommt nie im Funkkanal an (wie zweiter Lauf).
+- **F6/ALL auf beiden Instanzen getestet** (nur der Sender braucht es): `vivoxTx=[prox | radio]`
+  korrekt gesetzt, Sender `micPeak=0,34` — und **trotzdem nichts im Funkkanal** (`E=0,00`).
+  → Single-Verdacht WIDERLEGT: Das Mikro erreicht den Funkkanal unabhängig vom TX-Modus nie.
+- **Beweis-Lücke des Laufs:** Spieler standen ~46 m auseinander (außerhalb der 25-m-Proximity-Weite)
+  → der Prox-Kanal als zweite Spur war tot; wir konnten nicht prüfen, ob das Mikro ÜBERHAUPT noch
+  sendet, während PTT gehalten wird.
+- **Echo-Beobachtung:** lautes Selbst-Hören beim Proximity-Reden — bei 46 m muss der räumliche Tap
+  stumm sein; Verdacht: Vivox-native Ausgabe auf dem virtuellen Kabel (AUDIO-DEVICES-Warnzeile).
+  v17/v17.1 ändern KEINEN Audio-Code. Verifikation: Windows-Lautstärkemixer beim Auftreten prüfen.
+
+**Vierter Lauf — ALL-PTT in Proximity-Weite (5–10 m Abstand, entscheidend):**
+
+1. **Normal reden** (ohne PTT) → Mund-Stimme in der anderen Instanz räumlich und leise hörbar
+   (Baseline, dass Empfang generell funktioniert).
+2. **Sender: F6 drücken** (Log: `WALKIE DIAGNOSE F6: Funk-Sendemodus ALL`), PTT halten + reden:
+   - **Mund-Stimme bleibt hörbar** → TX-Pipeline arbeitet; nur der FUNKKANAL ist kaputt
+     (Medien-/URI-/Tap-Ebene) → Kanal-URIs und Funk-Tap-Registrierung vergleichen.
+   - **Mund-Stimme verstummt komplett** → der TX-Wechsel tötet die Mikro-Übertragung insgesamt
+     (Vivox-Core/sessiongroup-Bug) → native Vivox-Logs aktivieren.
+3. **Sender: nochmal F6** (zurück auf SINGLE), PTT + reden → Mund-Stimme muss jetzt verstummen
+   (Kontrollprobe: zeigt, dass der Moduswechsel überhaupt greift).
+4. Parallel: Tritt das laute Echo auf → Windows-Lautstärkemixer prüfen (welche App schlägt aus?).
+5. Logs beider Instanzen in `EarshotLogs` sichern.
+
+*Angelegt 2026-09-20 (v16.9), Nachtest-Runden v17/v17.1 ergänzt. Bei Änderung der Szenarien: hier pflegen, nicht nur im Chat.*
