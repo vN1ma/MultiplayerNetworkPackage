@@ -8,8 +8,14 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Geaendert (v17.1, 2026-09-20)
 
-- **package.json-Version 0.1.0 → 0.17.0:** Die Package-Manager-Anzeige hing seit Anbeginn bei
-  0.1.0 — ab jetzt traegt sie die interne Major-Revision (v17 = 0.17.0), damit auf einen Blick
+- **F6 immer aktiv — auch im Windows-Build, ohne Inspector-Checkbox:** Der Funk-Sendemodus-Wechsel
+  Single↔ALL lief urspruenglich unter der Leak-Hunt-Checkbox (`Diagnostic Hotkeys Enabled`), die es
+  in einem Build gar nicht gibt (kein Inspector) und im Editor nur zur Laufzeit an einem
+  DontDestroyOnLoad-Objekt. Seit v17.1 ist F6 eigenstaendig (`HandleRadioTxModeHotkey`) und immer
+  verfuegbar; zurueck auf Single per erneutem F6 oder automatisch beim naechsten Sitzungsstart.
+  Die Leak-Hunt-Keys F7-F12 bleiben wie gehabt an die Checkbox gebunden.
+- **package.json-Version 0.1.0 → 0.17.x:** Die Package-Manager-Anzeige hing seit Anbeginn bei
+  0.1.0 — ab jetzt traegt sie die interne Major-Revision (v17 = 0.17.x), damit auf einen Blick
   sichtbar ist, ob HOTEL_GAME auf dem aktuellen Stand pinnt.
 - **Befund-Update Abschnitt 20:** Der zweite 2-Client-Lauf (20260920-091018/091042) hat den
   Diskriminator beantwortet: `funkSprecher=[…:E=0,00/S=False]` durchgehend waehrend der

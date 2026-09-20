@@ -9,7 +9,7 @@
 | Taste | Funktion | Komponente / Ort | Status |
 |---|---|---|---|
 | **F7** | **Voice Graph Debug HUD** ein-/ausblenden (unten rechts: eigene Zone/Position, Schallweg zu Kollegen & Walkies mit Tür-Offenheiten, Luftlinie vs. Laufweg) | `VoiceGraphDebugHUD` (automatisch am „Earshot Voice Runtime"-Objekt) | **AKTIV** (Default) |
-| F6 | Funk-Sendemodus umschalten: Single „Funk ersetzt Mund" (Default) ↔ ALL „Proximity parallel" (Experiment, radio-tx-probe v17) | `WalkieSidetoneCapture` | AUS |
+| F6 | Funk-Sendemodus umschalten: Single „Funk ersetzt Mund" (Default) ↔ ALL „Proximity parallel" (Experiment, radio-tx-probe v17) | `WalkieSidetoneCapture` | **AKTIV** (immer, auch im Build — kein Inspector nötig) |
 | F8 | Vivox-Ausgabe auf ein anderes physisches Gerät umleiten (Leak-Hunt: trennt Vivox-native vom Unity-Mix) | `WalkieSidetoneCapture` | AUS (default, siehe unten) |
 | F9 | Tap-Hard-Mute (Not-Killswitch der Direktausgabe) | `WalkieSidetoneCapture` | AUS |
 | F10 | Tap-Volume Legacy-Modus volume=1 (Gegenprobe „Leak war die Direktausgabe") | `WalkieSidetoneCapture` | AUS |
@@ -30,8 +30,10 @@ Aktivieren (nur während Play):
 2. Komponente **Walkie Sidetone Capture** anklicken.
 3. Haken **„Diagnostic Hotkeys Enabled"** setzen.
 
-Beim Wegnehmen des Hakens werden alle aktiven Diagnose-Zustände automatisch zurückgesetzt
-(F6-Sendemodus, F8-Gerätewechsel, F9-Mute, F10-Volume, F11-Feed-Block, F12-Master) — es bleibt nichts verstellt.
+Beim Wegnehmen des Hakens werden die aktiven Leak-Hunt-Diagnose-Zustände automatisch zurückgesetzt
+(F8-Gerätewechsel, F9-Mute, F10-Volume, F11-Feed-Block, F12-Master) — es bleibt nichts verstellt.
+**F6 fällt nicht darunter:** Der Sendemodus-Wechsel ist seit v17.1 immer aktiv (auch im Build,
+ohne Checkbox) und bleibt gewählt, bis erneut F6 gedrückt wird oder die Sitzung endet.
 
 **Achtung F7-Konflikt:** Sind die Leak-Hunt-Hotkeys aktiv, feuern F7 doppelt (HUD-Toggle UND
 Vivox-native-Mute). In dem Fall am „Earshot Voice Runtime"-Objekt in der Komponente

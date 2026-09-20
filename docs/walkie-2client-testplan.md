@@ -64,9 +64,8 @@ die letzte offene Frage (wo stirbt das Audio?):
    - `funkSprecher=[…:E=0.xx/S=True]` bei `funkRx=0` → Audio ist im Kanal, unsere Tap-Schicht
      ist schuld (Empfängerseite graben).
    - `funkSprecher=[…:E=0.00/S=False]` → Sendung kommt nie im Kanal an (Vivox-Speisung).
-2. **Sender: Leak-Hunt-Checkbox aktivieren** (Objekt „Earshot Voice Runtime" → Komponente
-   „Walkie Sidetone Capture" → „Diagnostic Hotkeys Enabled"), dann **F6** drücken
-   (`WALKIE DIAGNOSE F6: Funk-Sendemodus ALL` im Log) und Szenario 2 wiederholen:
+2. **Sender: F6 drücken** (seit v17.1 immer aktiv — auch im Windows-Build, kein Inspector nötig;
+   Log: `WALKIE DIAGNOSE F6: Funk-Sendemodus ALL`) und Szenario 2 wiederholen:
    - Funk-Audio kommt an (`funkRx>0`, `OUTPUT AN mode=REMOTE`) → Single-Wechsel auf den zweiten
      Kanal ist die Vivox-Seite des Bugs; ALL ist der Fix-Kandidat (und testet „Proximity parallel").
    - Immer noch nichts → nächstes Level (native Vivox-Logs).
